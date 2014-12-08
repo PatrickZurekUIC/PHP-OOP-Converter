@@ -16,8 +16,8 @@ Then use Composer to install the dependencies:
     php composer.phar install
 
 #Usage
-To convert a program and pipe the output to stdout run (without the < >'s):
-    php parse <program_name.php> -
+To convert a program named Object.php and pipe the output to stdout run:
+    php parse Object.php -
 
-To convert a program and write it to a filenamed output.php, run:
-    php parse <program_name.php> output.php
+To convert a program and write it to a file named output.php, run:
+    php parse input.php output.php
