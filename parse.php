@@ -4,37 +4,6 @@
   use PhpParser\Node\Stmt;
   use PhpParser\Node\Expr;
   
-  //$nodeDumper = new PhpParser\NodeDumper; 
-
-  // This class traverses the properties of a class and is used to build 
-  // the __vars part of the global "class" variable (i.e. it extracts the
-  // public and protected variables of a class and returns it as an Array
-  // so that it can be merged with the parent's __vars (if necessary)
-  class ClassPropertyVisitor extends PhpParser\NodeVisitorAbstract
-  {
-    public function leaveNode(Node $node) {
-      if ($node instanceof Node\Stmt\Property) {
-        // Don't assume variables of parent that were private
-        if ($node->isPublic() || $node->isProtected()) {
-          $prop_prop = $node->props[0];
-          $vars_key = new Node\Scalar\String($prop_prop->name);
-          // If the property value is not null, we can use it directly
-          // else, create a "null" node and use that
-          if ($prop_prop->default != null) {
-            $vars_value = $prop_prop->default;      
-          } else {
-            $name = new Node\Name("null");
-            $vars_value = new Node\Expr\ConstFetch($name);
-          }
-          $array_item = new Node\Expr\ArrayItem($vars_value, $vars_key);
-          return $array_item;
-        }      
-      } elseif ($node instanceof Node\Stmt\ClassMethod) {
-        return false;
-      }
-    } 
-  }
-
   // This class is the main workhorse visitor of parse.php, visits all nodes in the program 
   class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
   {
@@ -50,7 +19,7 @@
       // and call the correct constructor function
         return $this->convert_new_node($node); 
       } elseif ($node instanceof Expr\MethodCall) {
-      // The node is a call to an objects method.  Convert it to call the
+      // The node is a call to an object's method.  Convert it to call the
       // correct global function of the object
         return $this->convert_method_call($node); 
       }
@@ -151,6 +120,7 @@
       $factory = new PhpParser\BuilderFactory;
       $new_nodes = array();
 
+      // Convert the class' methods to global functions
       $methods = $node->getMethods();
       foreach($methods as $method_node) {
         // Create the new function and name it
@@ -183,6 +153,8 @@
       // and its member variables
       $class_var_name = new Node\Expr\Variable($node->name);
 
+      $traverser = new PhpParser\NodeTraverser;
+      $traverser->addVisitor(new ClassPropertyVisitorForVars);
       // Check if the node extends a class before trying to access its parent's name
       if ($node->extends instanceof Node\Name) {
         $value = new Node\Scalar\String($node->extends->toString());
@@ -200,9 +172,6 @@
 
         // Set up the second argument to array_merge()
         // Loop over each method variable and create an array item
-        
-        $traverser = new PhpParser\NodeTraverser;
-        $traverser->addVisitor(new ClassPropertyVisitor);
         $var_stmts = $traverser->traverse($node->stmts); 
      
         // Add the array items to the new array that's the second arg to array_merge
@@ -216,8 +185,6 @@
         // Node doesn't extend a class so just create the global class
         // variable with a vars item
         $key = new Node\Scalar\String("__vars");
-        $traverser = new PhpParser\NodeTraverser;
-        $traverser->addVisitor(new ClassPropertyVisitor);
         $var_stmts = $traverser->traverse($node->stmts);
         $value = new Node\Expr\Array_($var_stmts);
         $array_items[] = new Node\Expr\ArrayItem($value, $key);
@@ -226,6 +193,12 @@
       $initial_array = new Node\Expr\Array_($array_items);
       $new_node = new Node\Expr\Assign($class_var_name, $initial_array); 
       $new_nodes[] = $new_node;
+
+      // Now convert any class constants to global variables
+      $traverser = new PhpParser\NodeTraverser;
+      $traverser->addVisitor(new ClassPropertyVisitorForConstants($node->name));
+      $class_constants = $traverser->traverse($node->stmts);
+      $new_nodes = array_merge($new_nodes, $class_constants);
 
       return $new_nodes;
     }
@@ -248,11 +221,60 @@
     }
   }
 
+  // This class traverses the properties of a class and is used to build 
+  // the __vars part of the global "class" variable (i.e. it extracts the
+  // public and protected variables of a class and returns it as an Array
+  // so that it can be merged with the parent's __vars (if necessary)
+  class ClassPropertyVisitorForVars extends PhpParser\NodeVisitorAbstract
+  {
+    public function leaveNode(Node $node) {
+      if ($node instanceof Node\Stmt\Property) {
+        // Don't assume variables of parent that were private
+        if ($node->isPublic() || $node->isProtected()) {
+          $prop_prop = $node->props[0];
+          $vars_key = new Node\Scalar\String($prop_prop->name);
+          // If the property value is not null, we can use it directly
+          // else, create a "null" node and use that
+          if ($prop_prop->default != null) {
+            $vars_value = $prop_prop->default;      
+          } else {
+            $name = new Node\Name("null");
+            $vars_value = new Node\Expr\ConstFetch($name);
+          }
+          $array_item = new Node\Expr\ArrayItem($vars_value, $vars_key);
+          return $array_item;
+        }      
+      } elseif ($node instanceof Node\Stmt\ClassMethod) {
+        return false;
+      } elseif ($node instanceof Node\Stmt\ClassConst) {
+        return false;
+      }
+    } 
+  }
+
+  class ClassPropertyVisitorForConstants extends PhpParser\NodeVisitorAbstract
+  {
+    private $this_class = null;
+    public function __construct($this_class) {
+      $this->this_class = $this_class;
+    }
+ 
+    public function leaveNode(Node $node) {
+      if ($node instanceof Node\Stmt\ClassConst) {
+        $name = $this->this_class . "_" . $node->consts[0]->name;
+        $value = $node->consts[0]->value;
+        $var = new Expr\Variable($name);
+        $expr_assign = new Expr\Assign($var, $value);
+        return $expr_assign;
+      }
+    }
+  }
 
   if (sizeof($argv) != 3) {
     echo "Invalid number of arguments\n";
     exit(0);
   }
+ 
   $parser = new PhpParser\Parser(new PhpParser\Lexer);
   $traverser = new PhpParser\NodeTraverser;
   $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
@@ -260,7 +282,11 @@
   $code = file_get_contents($argv[1]);
   try {
     $stmts = $parser->parse($code);
-    //echo $nodeDumper->dump($stmts), "\n";
+    if ($argv[2] == "nodedump") {
+      $nodeDumper = new PhpParser\NodeDumper; 
+      echo $nodeDumper->dump($stmts), "\n";
+      exit(0);
+    }
     $stmts = $traverser->traverse($stmts);
     $code = $prettyPrinter->prettyPrintFile($stmts);
     if ($argv[2] == "-") {
