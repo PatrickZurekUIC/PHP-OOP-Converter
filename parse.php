@@ -4,10 +4,12 @@
   use PhpParser\Node\Stmt;
   use PhpParser\Node\Expr;
   
-  $nodeDumper = new PhpParser\NodeDumper; 
+  //$nodeDumper = new PhpParser\NodeDumper; 
 
   // This class traverses the properties of a class and is used to build 
-  // the __vars part of the global "class" variable
+  // the __vars part of the global "class" variable (i.e. it extracts the
+  // public and protected variables of a class and returns it as an Array
+  // so that it can be merged with the parent's __vars (if necessary)
   class ClassPropertyVisitor extends PhpParser\NodeVisitorAbstract
   {
     public function leaveNode(Node $node) {
@@ -16,6 +18,8 @@
         if ($node->isPublic() || $node->isProtected()) {
           $prop_prop = $node->props[0];
           $vars_key = new Node\Scalar\String($prop_prop->name);
+          // If the property value is not null, we can use it directly
+          // else, create a "null" node and use that
           if ($prop_prop->default != null) {
             $vars_value = $prop_prop->default;      
           } else {
@@ -31,44 +35,67 @@
     } 
   }
 
+  // This class is the main workhorse visitor of parse.php, visits all nodes in the program 
   class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
   {
     public function leaveNode(Node $node) {
-     if ($node instanceof Stmt\Class_) {
-        return $this->convert_class_node($node); 
+      // If the node is a class, create the global functions corresponding to the
+      // class methods, convert occurances of this to objInst, and create the global
+      // "Class" variable holding the information about the class (__vars, etc)
+      if ($node instanceof Stmt\Class_) {
+         return $this->convert_class_node($node); 
       } elseif ($node->expr instanceof Expr\New_ ) {
+      // If the node is creating a new object with "new"
+      // convert it to create an objInst variable representing the object
+      // and call the correct constructor function
         return $this->convert_new_node($node); 
       } elseif ($node instanceof Expr\MethodCall) {
+      // The node is a call to an objects method.  Convert it to call the
+      // correct global function of the object
         return $this->convert_method_call($node); 
       }
     }
 
+    // To convert a method call (Object->method() to Object__method()
+    // we load a template that contains the code instead of building all 
+    // that code manually using PHP-Parser.  We use placeholders in the 
+    // template to designate what needs to be replaced
+    // The code that this generates is what calls the correct method of an
+    // object (whether it be the Object's own method, or one of its ancestors
     private function convert_method_call($node) {
       $code = file_get_contents('method-template.txt');
       // First add the object name to the template
       $code = str_replace('{obj}', $node->var->name, $code);
-      // Next replace the method name
+      // Next replace the method
       $code = str_replace('{method}', '_' . $node->name, $code);
+
+      // Next, get the original arguments to the method call:
       $args = $node->args;
       $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
       // By pretty printing it we convert it to a string so we can
       // seperate the arguments by commas
       $pp_args = $prettyPrinter->prettyPrint($args);
       $arg_lines = explode(PHP_EOL, $pp_args);
+      // Add the arguments to a string separated by commas
       $arg_string = ",";
       foreach($arg_lines as $line) {
         $arg_string .= $line . ",";
       }
+      // Remove the trailing comma
       $arg_string = rtrim($arg_string, ",");
+      // ..and replace instances of {args} with the argument string 
       $code = str_replace('{args}', $arg_string, $code);
-      
+      // Parse the string and return it so that it can be added to the AST 
       $parser = new PhpParser\Parser(new PhpParser\Lexer);
       $stmts = $parser->parse($code);
       return $stmts;
     }
 
     private function convert_new_node($node) {
+      // First, create the global obj_inst variable that gets passed to
+      // the functions (originally the methods, now converted to functions)
       $stmts = $this->create_obj_inst($node);
+      // Then create the nodes that call the proper constructor for that object
       $stmts = array_merge($stmts, $this->create_constructor($node));
       return $stmts;
     }
@@ -96,17 +123,15 @@
     }
 
     private function create_constructor($node) {
-      // Create the code that calls the correct constructor
+      // See the comments in convert_method_call() for an explanation
+      // of what is happening below since the methods are very similar
+      // (this one is just for constructor calls)
       $code = file_get_contents('method-template.txt');
-      // First add the type to the template
       $code = str_replace('{obj}', $node->var->name, $code);
       // Replace {method} with __construct
       $code = str_replace('{method}', '_' . '_construct', $code);
-      // Now add the constructor arguments to the template
       $args = $node->expr->args;
       $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
-      // By pretty printing it we convert it to a string so we can
-      // seperate the arguments by commas
       $pp_args = $prettyPrinter->prettyPrint($args);
       $arg_lines = explode(PHP_EOL, $pp_args);
       $arg_string = ",";
@@ -206,6 +231,9 @@
     }
   }
  
+  // This class traverses over the statements in a class' method and
+  // converts occurences of "this" to to use the objInst variable
+  // Essentially $this->var becomes $objInst['var']
   class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
   {
     public function leaveNode(Node $node) {
@@ -219,6 +247,7 @@
       }
     }
   }
+
 
   if (sizeof($argv) != 3) {
     echo "Invalid number of arguments\n";
