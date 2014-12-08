@@ -22,7 +22,13 @@
       // The node is a call to an object's method.  Convert it to call the
       // correct global function of the object
         return $this->convert_method_call($node); 
-      }
+      } elseif ($node instanceof Expr\ClassConstFetch) {
+      // The node fetches a class constant.  Convert it to 
+      // Classname_variablename
+        $name = $node->class->parts[0];
+        $name = $name . "_" . $node->name;
+        return new Expr\Variable($name); 
+      } 
     }
 
     // To convert a method call (Object->method() to Object__method()
@@ -252,6 +258,9 @@
     } 
   }
 
+  // This visitor traverses over the statements in a method looking for class
+  // constants and converts them to global variables in the format: 
+  // "ClassName__variablename"
   class ClassPropertyVisitorForConstants extends PhpParser\NodeVisitorAbstract
   {
     private $this_class = null;
