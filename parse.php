@@ -78,14 +78,14 @@
     private function create_obj_inst($node) {
       // Create the array merge function expression
       // Start by creating the arguments to it
-      $class_var_name = new Node\Expr\Variable($node->expr->class->parts[0]);
+      $class_var_name = new Expr\Variable($node->expr->class->parts[0]);
       $arr_dim = new Node\Scalar\String("__vars");
-      $first_arg_val = new Node\Expr\ArrayDimFetch($class_var_name, $arr_dim);
+      $first_arg_val = new Expr\ArrayDimFetch($class_var_name, $arr_dim);
       
       $key = new Node\Scalar\String("__type");
       $value = new Node\Scalar\String($node->expr->class->parts[0]);
       $second_arg_items[] = new Expr\ArrayItem($value, $key);
-      $second_arg_val = new Node\Expr\Array_($second_arg_items);
+      $second_arg_val = new Expr\Array_($second_arg_items);
 
       $args[] = new Node\Arg($first_arg_val);
       $args[] = new Node\Arg($second_arg_val);
@@ -143,7 +143,7 @@
         // Traverse over the statements in the class methods and convert occurances
         // of "this" to use objInst
         $traverser = new PhpParser\NodeTraverser;
-        $traverser->addVisitor(new MethodStmtVisitor);
+        $traverser->addVisitor(new MethodStmtVisitor($node->name));
         $stmts = $traverser->traverse($method_node->stmts);
 
         // Add the statements from the original method to the function
@@ -157,7 +157,7 @@
 
       // Now create the global variable for the class that holds its parent
       // and its member variables
-      $class_var_name = new Node\Expr\Variable($node->name);
+      $class_var_name = new Expr\Variable($node->name);
 
       $traverser = new PhpParser\NodeTraverser;
       $traverser->addVisitor(new ClassPropertyVisitorForVars);
@@ -165,15 +165,15 @@
       if ($node->extends instanceof Node\Name) {
         $value = new Node\Scalar\String($node->extends->toString());
         $key = new Node\Scalar\String("__parent");
-        $array_items[] = new Node\Expr\ArrayItem($value, $key);
+        $array_items[] = new Expr\ArrayItem($value, $key);
 
         $vars_key = new Node\Scalar\String("__vars");
         $func_call_name = new Node\Name("array_merge");
 
         // Set up the first argument to array_merge()
-        $parent_var_name = new Node\Expr\Variable($node->extends->toString());
+        $parent_var_name = new Expr\Variable($node->extends->toString());
         $arr_dim = new Node\Scalar\String("__vars");
-        $arg = new Node\Expr\ArrayDimFetch($parent_var_name, $arr_dim);
+        $arg = new Expr\ArrayDimFetch($parent_var_name, $arr_dim);
         $arr_merge_args[] = new Node\Arg($arg);
 
         // Set up the second argument to array_merge()
@@ -182,25 +182,26 @@
      
         // Add the array items to the new array that's the second arg to array_merge
         //$arr_merge_args[] = new Node\Expr\Array_($merge_arg_array);
-        $arg = new Node\Expr\Array_($var_stmts);
+        $arg = new Expr\Array_($var_stmts);
         $arr_merge_args[] = new Node\Arg($arg);
 
-        $vars_value =  new Node\Expr\FuncCall($func_call_name, $arr_merge_args);
-        $array_items[] = new Node\Expr\ArrayItem($vars_value, $vars_key);
+        $vars_value =  new Expr\FuncCall($func_call_name, $arr_merge_args);
+        $array_items[] = new Expr\ArrayItem($vars_value, $vars_key);
       } else {
         // Node doesn't extend a class so just create the global class
         // variable with a vars item
         $key = new Node\Scalar\String("__vars");
         $var_stmts = $traverser->traverse($node->stmts);
-        $value = new Node\Expr\Array_($var_stmts);
-        $array_items[] = new Node\Expr\ArrayItem($value, $key);
+        $value = new Expr\Array_($var_stmts);
+        $array_items[] = new Expr\ArrayItem($value, $key);
       }
 
-      $initial_array = new Node\Expr\Array_($array_items);
-      $new_node = new Node\Expr\Assign($class_var_name, $initial_array); 
+      $initial_array = new Expr\Array_($array_items);
+      $new_node = new Expr\Assign($class_var_name, $initial_array); 
       $new_nodes[] = $new_node;
 
       // Now convert any class constants to global variables
+
       $traverser = new PhpParser\NodeTraverser;
       $traverser->addVisitor(new ClassPropertyVisitorForConstants($node->name));
       $class_constants = $traverser->traverse($node->stmts);
@@ -215,14 +216,21 @@
   // Essentially $this->var becomes $objInst['var']
   class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
   {
+    private $this_class = null;
+    public function __construct($this_class) {
+      $this->this_class = $this_class;
+    }
+
     public function leaveNode(Node $node) {
-      if($node instanceof Node\Expr\PropertyFetch) {
+      if ($node instanceof Expr\PropertyFetch) {
         $var_node = $node->var; 
         if ($var_node->name == "this") {
           $key_name = new Node\Scalar\String($node->name);
-          $var_name = new Node\Expr\Variable("objInst");
-          return new Node\Expr\ArrayDimFetch($var_name, $key_name);
+          $var_name = new Expr\Variable("objInst");
+          return new Expr\ArrayDimFetch($var_name, $key_name);
         }
+      } elseif ($node instanceof Expr\StaticCall) {
+            
       }
     }
   }
@@ -245,9 +253,9 @@
             $vars_value = $prop_prop->default;      
           } else {
             $name = new Node\Name("null");
-            $vars_value = new Node\Expr\ConstFetch($name);
+            $vars_value = new Expr\ConstFetch($name);
           }
-          $array_item = new Node\Expr\ArrayItem($vars_value, $vars_key);
+          $array_item = new Expr\ArrayItem($vars_value, $vars_key);
           return $array_item;
         }      
       } elseif ($node instanceof Node\Stmt\ClassMethod) {
@@ -275,8 +283,11 @@
         $var = new Expr\Variable($name);
         $expr_assign = new Expr\Assign($var, $value);
         return $expr_assign;
+      } else {
+        return false;
       }
     }
+
   }
 
   if (sizeof($argv) != 3) {

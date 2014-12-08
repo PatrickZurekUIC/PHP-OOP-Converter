@@ -3,17 +3,18 @@
   class Pet {
   
     protected $name;
-    protected $age = 10;
 
-    public function __construct($name, $age) {
+    public function __construct($name) {
       echo "Setting name to " . $name . "\n";
       $this->name = $name;
-      echo "Now name is set to " . $this->name . "\n";
-      $this->age = $age;
     } 
 
     public function eat() {
       echo $this->name . " is eating.\n";
+    }
+
+    public function testFunc() {
+      echo "Just a test function\n.";
     }
   }
 
@@ -24,12 +25,15 @@
   }
 
   class Terrier extends Dog {
-    public $testing;
-    public $weight  = null;
+    public $weight;
+    public function setWeightAndEat($weight) {
+      $this->weight = $weight;  
+      //parent::eat();
+      return "Test";
+    }
   }
 
-  $a_terrier = new Terrier("Spike", 5); 
-  $a_terrier->bark();
-  $a_terrier->eat();
-
+  $a_terrier = new Terrier("Spike"); 
+  $hi = $a_terrier->setWeightAndEat(30);
+  $a_terrier->testFunc(); 
 ?>
