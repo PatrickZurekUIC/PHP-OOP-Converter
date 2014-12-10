@@ -50,7 +50,28 @@
         $name = $node->class->parts[0];
         $name = $name . "_" . $node->name;
         return new Expr\Variable($name); 
-      } 
+      } elseif ($node instanceof Expr\StaticCall) {
+      // Node is a call to a static class method.  Convert Class::method()
+      // to the function Class_method();
+        return $this->convert_static_call($node);
+      } elseif ($node instanceof Expr\StaticPropertyFetch) {
+        return $this->convert_static_prop($node); 
+      }
+    }
+  
+    private function convert_static_prop($node) {
+      
+    }
+
+    private function convert_static_call($node) {
+      $class = $node->class->parts[0];
+      $method = $node->name;
+      $args = $node->args;
+      $name = $class . "_" . $method;
+      $name = new Node\Name($name); 
+      $func_call_stmt = new Expr\FuncCall($name, $args);
+      $stmts = array($func_call_stmt);
+      return $stmts;
     }
 
     // Converts a node from the form $obj->method() to Class_method()
@@ -152,7 +173,6 @@
       $factory = new PhpParser\BuilderFactory;
       $new_nodes = array();
 
-
       // Convert the class' methods to global functions
       $methods = $node->getMethods();
       foreach($methods as $method_node) {
@@ -163,7 +183,10 @@
           $new_node = $factory->function($node->name . "_" . $method_node->name);
         }
         // Add the method parameters to the function signature
-        $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
+        // If it is not a static method (we don't need objInst in this case)
+        if ($method_node->type != 9) {
+          $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
+        }
         foreach($method_node->params as $param) {
           $new_node = $new_node->addParam($param); 
         }
@@ -187,7 +210,9 @@
       $class_var_name = new Expr\Variable($node->name);
 
       $traverser = new PhpParser\NodeTraverser;
-      $traverser->addVisitor(new ClassPropertyVisitorForVars);
+      $traverser->addVisitor(new ClassPropertyVisitorForVars($node->name));
+
+      $statics = array();
       // Check if the node extends a class before trying to access its parent's name
       if ($node->extends instanceof Node\Name) {
         $value = new Node\Scalar\String($node->extends->toString());
@@ -206,9 +231,17 @@
         // Set up the second argument to array_merge()
         // Loop over each method variable and create an array item
         $var_stmts = $traverser->traverse($node->stmts); 
+
+        // Extract the static variables, these aren't instances of ArrayItem
+        // so we add it directly to the returned statements array
+        foreach ($var_stmts as $var_key => $stmt) {
+          if ($stmt instanceof Expr\Assign) {
+            $statics[] = $stmt;
+            unset($var_stmts[$var_key]);
+          }
+        } 
      
         // Add the array items to the new array that's the second arg to array_merge
-        //$arr_merge_args[] = new Node\Expr\Array_($merge_arg_array);
         $arg = new Expr\Array_($var_stmts);
         $arr_merge_args[] = new Node\Arg($arg);
 
@@ -219,16 +252,25 @@
         // variable with a vars item
         $key = new Node\Scalar\String("__vars");
         $var_stmts = $traverser->traverse($node->stmts);
+        // Extract the static variables, these aren't instances of ArrayItem
+        // so we add it directly to the returned statements array
+        foreach ($var_stmts as $var_key => $stmt) {
+          if ($stmt instanceof Expr\Assign) {
+            $statics[] = $stmt;
+            unset($var_stmts[$var_key]);
+          }
+        } 
         $value = new Expr\Array_($var_stmts);
         $array_items[] = new Expr\ArrayItem($value, $key);
       }
+
+      $new_nodes = array_merge($new_nodes, $statics);
 
       $initial_array = new Expr\Array_($array_items);
       $new_node = new Expr\Assign($class_var_name, $initial_array); 
       $new_nodes[] = $new_node;
 
       // Now convert any class constants to global variables
-
       $traverser = new PhpParser\NodeTraverser;
       $traverser->addVisitor(new ClassPropertyVisitorForConstants($node->name));
       $class_constants = $traverser->traverse($node->stmts);
@@ -268,8 +310,28 @@
   // so that it can be merged with the parent's __vars (if necessary)
   class ClassPropertyVisitorForVars extends PhpParser\NodeVisitorAbstract
   {
+    private $this_class = null;
+    public function __construct($this_class) {
+      $this->this_class = $this_class;
+    }
+
     public function leaveNode(Node $node) {
       if ($node instanceof Node\Stmt\Property) {
+        if ($node->isStatic()) {
+          $prop = $node->props[0];
+          $name = $this->this_class . "_" . $prop->name;
+          $var = new Expr\Variable($name);
+          if ($prop->default == null) {
+            $null = new Node\Name("null");
+            $null_const = new Expr\ConstFetch($null);
+            $assignment = new Expr\Assign($var, $null_const);
+            return $assignment;
+          } else {
+            $assignment = new Expr\Assign($var, $prop->default);
+            return $assignment;
+          }
+
+        }
         // Don't assume variables of parent that were private
         if ($node->isPublic() || $node->isProtected()) {
           $prop_prop = $node->props[0];
@@ -289,7 +351,7 @@
         return false;
       } elseif ($node instanceof Node\Stmt\ClassConst) {
         return false;
-      }
+      } 
     } 
   }
 
@@ -304,7 +366,7 @@
     }
  
     public function leaveNode(Node $node) {
-      if ($node instanceof Node\Stmt\ClassConst) {
+      if ($node instanceof Stmt\ClassConst) {
         $name = $this->this_class . "_" . $node->consts[0]->name;
         $value = $node->consts[0]->value;
         $var = new Expr\Variable($name);
@@ -314,7 +376,35 @@
         return false;
       }
     }
+  }
 
+  class ClassPropertyVisitorForStatics extends PhpParser\NodeVisitorAbstract
+  {
+    private $this_class = null;
+    public function __construct($this_class) {
+      $this->this_class = $this_class;
+    }
+ 
+    public function leaveNode(Node $node) {
+      // If the node is a static method property either return an assignment
+      // expression (if it has a default value) or return an Expression Variable
+      if ($node instanceof Stmt\Property) {
+        if ($node->isStatic()) {
+          $nodeDumper = new PhpParser\NodeDumper;
+          echo $nodeDumper->dump($node), "\n";
+
+          echo "SIZE: " . get_class($node) . "\n";
+          $prop = $node->props[0];
+          $var = new Expr\Variable($prop->name);
+          echo "NAME: " . $prop->name . "\n";
+          if ($prop->default == null) {
+            return $var;
+          } 
+        }
+      } else {
+        return false;
+      }
+    }
   }
 
   if (sizeof($argv) != 3) {
