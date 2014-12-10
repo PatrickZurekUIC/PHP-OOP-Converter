@@ -378,35 +378,6 @@
     }
   }
 
-  class ClassPropertyVisitorForStatics extends PhpParser\NodeVisitorAbstract
-  {
-    private $this_class = null;
-    public function __construct($this_class) {
-      $this->this_class = $this_class;
-    }
- 
-    public function leaveNode(Node $node) {
-      // If the node is a static method property either return an assignment
-      // expression (if it has a default value) or return an Expression Variable
-      if ($node instanceof Stmt\Property) {
-        if ($node->isStatic()) {
-          $nodeDumper = new PhpParser\NodeDumper;
-          echo $nodeDumper->dump($node), "\n";
-
-          echo "SIZE: " . get_class($node) . "\n";
-          $prop = $node->props[0];
-          $var = new Expr\Variable($prop->name);
-          echo "NAME: " . $prop->name . "\n";
-          if ($prop->default == null) {
-            return $var;
-          } 
-        }
-      } else {
-        return false;
-      }
-    }
-  }
-
   if (sizeof($argv) != 3) {
     echo "Invalid number of arguments\n";
     exit(0);
