@@ -7,6 +7,28 @@
   // This class is the main workhorse visitor of parse.php, visits all nodes in the program 
   class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
   {
+    private $methods_parents = array();
+    private $obj_class_map = array(); 
+
+    public function enterNode(Node $node) {
+      if ($node instanceof Stmt\Class_) {
+        if ($node->extends instanceof Node\Name) {
+          $parent = $node->extends->toString();
+        } else {
+          $parent = null;
+        } 
+        $this->methods_parents[$node->name] = array();
+        $this->methods_parents[$node->name]['parent'] = $parent;
+        $this->methods_parents[$node->name]['methods'] = array();
+        $methods = $node->getMethods();
+        foreach($methods as $method_node) {
+          $this->methods_parents[$node->name]['methods'][] = $method_node->name;       
+        }
+      } elseif ($node->expr instanceof Expr\New_) {
+        $this->obj_class_map[$node->var->name] = $node->expr->class->parts[0];
+      }
+    }
+ 
     public function leaveNode(Node $node) {
       // If the node is a class, create the global functions corresponding to the
       // class methods, convert occurances of this to objInst, and create the global
@@ -31,39 +53,36 @@
       } 
     }
 
-    // To convert a method call (Object->method() to Object__method()
-    // we load a template that contains the code instead of building all 
-    // that code manually using PHP-Parser.  We use placeholders in the 
-    // template to designate what needs to be replaced
-    // The code that this generates is what calls the correct method of an
-    // object (whether it be the Object's own method, or one of its ancestors
+    // Converts a node from the form $obj->method() to Class_method()
+    // and prepends the objInst variable to the arguments list
     private function convert_method_call($node) {
-      $code = file_get_contents('method-template.txt');
-      // First add the object name to the template
-      $code = str_replace('{obj}', $node->var->name, $code);
-      // Next replace the method
-      $code = str_replace('{method}', '_' . $node->name, $code);
+      $method = $node->name; 
 
-      // Next, get the original arguments to the method call:
+      // Find what class this object belongs to
+      $class = $this->obj_class_map[$node->var->name];
+      $class_methods = $this->methods_parents[$class]['methods'];
+      // Then determine the correct method to call (either the class' method
+      // or one of its ancestors if necessary
+      if (!in_array($method, $class_methods)) {
+        while (true) {
+          $parent = $this->methods_parents[$class]['parent'];
+          $class = $parent;
+          if (in_array($method, $this->methods_parents[$parent]['methods'])){
+            break; 
+          } 
+        }
+      } 
+ 
+      // We know the correct function to call, now construct it and return it
+      $func_call_name = $class . "_" . $method;
+      $name = new Node\Name($func_call_name);
       $args = $node->args;
-      $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
-      // By pretty printing it we convert it to a string so we can
-      // seperate the arguments by commas
-      $pp_args = $prettyPrinter->prettyPrint($args);
-      $arg_lines = explode(PHP_EOL, $pp_args);
-      // Add the arguments to a string separated by commas
-      $arg_string = ",";
-      foreach($arg_lines as $line) {
-        $arg_string .= $line . ",";
-      }
-      // Remove the trailing comma
-      $arg_string = rtrim($arg_string, ",");
-      // ..and replace instances of {args} with the argument string 
-      $code = str_replace('{args}', $arg_string, $code);
-      // Parse the string and return it so that it can be added to the AST 
-      $parser = new PhpParser\Parser(new PhpParser\Lexer);
-      $stmts = $parser->parse($code);
-      return $stmts;
+
+      $obj_inst_var = new Expr\Variable($node->var->name);
+      $obj_inst_arg = new Node\Arg($obj_inst_var);
+      array_unshift($args, $obj_inst_arg);
+      $func_call_stmt = new Expr\FuncCall($name, $args);
+      return $func_call_stmt;
     }
 
     private function convert_new_node($node) {
@@ -78,6 +97,7 @@
     private function create_obj_inst($node) {
       // Create the array merge function expression
       // Start by creating the arguments to it
+      
       $class_var_name = new Expr\Variable($node->expr->class->parts[0]);
       $arr_dim = new Node\Scalar\String("__vars");
       $first_arg_val = new Expr\ArrayDimFetch($class_var_name, $arr_dim);
@@ -98,33 +118,40 @@
     }
 
     private function create_constructor($node) {
-      // See the comments in convert_method_call() for an explanation
-      // of what is happening below since the methods are very similar
-      // (this one is just for constructor calls)
-      $code = file_get_contents('method-template.txt');
-      $code = str_replace('{obj}', $node->var->name, $code);
-      // Replace {method} with __construct
-      $code = str_replace('{method}', '_' . '_construct', $code);
-      $args = $node->expr->args;
-      $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
-      $pp_args = $prettyPrinter->prettyPrint($args);
-      $arg_lines = explode(PHP_EOL, $pp_args);
-      $arg_string = ",";
-      foreach($arg_lines as $line) {
-        $arg_string .= $line . ",";
+      $method = "__construct";
+      // Find what class this object belongs to
+      $class = $this->obj_class_map[$node->var->name];
+      $class_methods = $this->methods_parents[$class]['methods'];
+      // Then determine the correct constructor to call (either the class' 
+      // or one of its ancestors if necessary
+      if (!in_array($method, $class_methods)) {
+        while (true) {
+          $parent = $this->methods_parents[$class]['parent'];
+          $class = $parent;
+          if (in_array($method, $this->methods_parents[$parent]['methods'])){
+            break;
+          }
+        }
       }
-      $arg_string = rtrim($arg_string, ",");
-      $code = str_replace('{args}', $arg_string, $code);
-      
-      $parser = new PhpParser\Parser(new PhpParser\Lexer);
-      $stmts = $parser->parse($code);
-      return $stmts;
+
+      // We know the correct function to call, now construct it and return it
+      $func_call_name = $class . $method;
+      $name = new Node\Name($func_call_name);
+      $args = $node->expr->args;
+
+      $obj_inst_var = new Expr\Variable($node->var->name);
+      $obj_inst_arg = new Node\Arg($obj_inst_var);
+      array_unshift($args, $obj_inst_arg);
+      $func_call_stmt = new Expr\FuncCall($name, $args);
+      $func_call_array = array($func_call_stmt);
+      return $func_call_array;
     }
 
 
     private function convert_class_node($node) {
       $factory = new PhpParser\BuilderFactory;
       $new_nodes = array();
+
 
       // Convert the class' methods to global functions
       $methods = $node->getMethods();

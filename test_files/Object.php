@@ -34,6 +34,6 @@
   }
 
   $a_terrier = new Terrier("Spike"); 
-  $hi = $a_terrier->setWeightAndEat(30);
+  $a_terrier->setWeightAndEat(30);
   $a_terrier->testFunc(); 
 ?>
