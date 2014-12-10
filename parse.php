@@ -9,9 +9,12 @@
   {
     private $methods_parents = array();
     private $obj_class_map = array(); 
+    private $globals = array();
+    private $current_class;
 
     public function enterNode(Node $node) {
       if ($node instanceof Stmt\Class_) {
+        $this->current_class = $node->name;
         if ($node->extends instanceof Node\Name) {
           $parent = $node->extends->toString();
         } else {
@@ -60,9 +63,20 @@
     }
   
     private function convert_static_prop($node) {
-      $name = $node->class->parts[0] . "_" . $node->name;
-      $variable = new Expr\Variable($name);
-      return $variable;
+      if ($node->class->parts[0] == "self") {
+        // Create the global variable and return it
+        // We can't return the actual "global $var" statement here so add it
+        // to an array.  We'll add it later when constructing the method
+        $name = $this->current_class . "_" . $node->name;
+        $var = new Expr\Variable($name);
+        $global = new Stmt\Global_(array($var));
+        $this->globals[] = $global;
+        return $var;
+      } else {
+        $name = $node->class->parts[0] . "_" . $node->name;
+        $variable = new Expr\Variable($name);
+        return $variable;
+      }
     }
 
     private function convert_static_call($node) {
@@ -174,6 +188,7 @@
     private function convert_class_node($node) {
       $factory = new PhpParser\BuilderFactory;
       $new_nodes = array();
+  
 
       // Convert the class' methods to global functions
       $methods = $node->getMethods();
@@ -185,13 +200,22 @@
           $new_node = $factory->function($node->name . "_" . $method_node->name);
         }
         // Add the method parameters to the function signature
-        // If it is not a static method (we don't need objInst in this case)
+        // if it is not a static method (we don't need objInst in this case)
         if ($method_node->type != 9) {
           $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
         }
         foreach($method_node->params as $param) {
           $new_node = $new_node->addParam($param); 
         }
+
+        // Add "global $var" statements for any static variables we encountered
+        // in the original method
+        foreach ($this->globals as $global) {
+          $new_node = $new_node->addStmt($global);          
+        }
+        // And reset the globals array
+        $this->globals = array();
+
         // Traverse over the statements in the class methods and convert occurances
         // of "this" to use objInst
         $traverser = new PhpParser\NodeTraverser;
@@ -202,7 +226,6 @@
         foreach($stmts as $stmt) {
           $new_node = $new_node->addStmt($stmt);
         }
-
         $new_node = $new_node->getNode();
         $new_nodes[] = $new_node;
       }
@@ -300,9 +323,15 @@
           $var_name = new Expr\Variable("objInst");
           return new Expr\ArrayDimFetch($var_name, $key_name);
         }
-      } elseif ($node instanceof Expr\StaticCall) {
-            
-      }
+      } /*elseif ($node instanceof Expr\StaticPropertyFetch) {
+        $name = $this->this_class . "_" . $node->name;
+        $var = new Expr\Variable($name);
+        $global = new Stmt\Global_(array($var));
+        $stmts[] = $global;
+        $stmts[] = $var;
+
+        return $stmts;
+      } */
     }
   }
 
