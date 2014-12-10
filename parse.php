@@ -60,7 +60,9 @@
     }
   
     private function convert_static_prop($node) {
-      
+      $name = $node->class->parts[0] . "_" . $node->name;
+      $variable = new Expr\Variable($name);
+      return $variable;
     }
 
     private function convert_static_call($node) {
