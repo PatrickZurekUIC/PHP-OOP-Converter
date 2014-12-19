@@ -80,8 +80,24 @@
     }
 
     private function convert_static_call($node) {
-      $class = $node->class->parts[0];
       $method = $node->name;
+      $class = $node->class->parts[0];
+      $args = array();
+      if ($class == "parent") {
+        $class = $this->current_class;
+        $class_methods = $this->methods_parents[$class]['methods'];
+        // Then determine the correct method to call (either the class' method
+        // or one of its ancestors if necessary
+        if (!in_array($method, $class_methods)) {
+          while (true) {
+            $parent = $this->methods_parents[$class]['parent'];
+            $class = $parent;
+            if (in_array($method, $this->methods_parents[$parent]['methods'])){
+              break; 
+            } 
+          }
+        } 
+      } 
       $args = $node->args;
       $name = $class . "_" . $method;
       $name = new Node\Name($name); 
@@ -219,7 +235,7 @@
         // Traverse over the statements in the class methods and convert occurances
         // of "this" to use objInst
         $traverser = new PhpParser\NodeTraverser;
-        $traverser->addVisitor(new MethodStmtVisitor($node->name));
+        $traverser->addVisitor(new MethodStmtVisitor);
         $stmts = $traverser->traverse($method_node->stmts);
 
         // Add the statements from the original method to the function
@@ -310,11 +326,6 @@
   // Essentially $this->var becomes $objInst['var']
   class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
   {
-    private $this_class = null;
-    public function __construct($this_class) {
-      $this->this_class = $this_class;
-    }
-
     public function leaveNode(Node $node) {
       if ($node instanceof Expr\PropertyFetch) {
         $var_node = $node->var; 
@@ -323,15 +334,7 @@
           $var_name = new Expr\Variable("objInst");
           return new Expr\ArrayDimFetch($var_name, $key_name);
         }
-      } /*elseif ($node instanceof Expr\StaticPropertyFetch) {
-        $name = $this->this_class . "_" . $node->name;
-        $var = new Expr\Variable($name);
-        $global = new Stmt\Global_(array($var));
-        $stmts[] = $global;
-        $stmts[] = $var;
-
-        return $stmts;
-      } */
+      }
     }
   }
 
