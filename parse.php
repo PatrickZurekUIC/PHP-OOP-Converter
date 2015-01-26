@@ -377,29 +377,6 @@
     }
   }
 
-  // This visitor traverses over the statements in a method looking for class
-  // constants and converts them to global variables in the format: 
-  // "ClassName__variablename"
-  class ClassPropertyVisitorForConstants extends PhpParser\NodeVisitorAbstract
-  {
-    private $this_class = null;
-    public function __construct($this_class) {
-      $this->this_class = $this_class;
-    }
- 
-    public function leaveNode(Node $node) {
-      if ($node instanceof Stmt\ClassConst) {
-        $name = $this->this_class . "_" . $node->consts[0]->name;
-        $value = $node->consts[0]->value;
-        $var = new Expr\Variable($name);
-        $expr_assign = new Expr\Assign($var, $value);
-        return $expr_assign;
-      } else {
-        return false;
-      }
-    }
-  } // End ClassPropertyVisitorForConstants class
-
   ////////////////////////
   // Begin "main"
   ////////////////////////
