@@ -139,11 +139,10 @@
     }
 
     private function convert_new_node($node) {
-      // First, create the global obj_inst variable that gets passed to
-      // the functions (originally the methods, now converted to functions)
-      $stmts = $this->create_obj_inst($node);
-      // Then create the nodes that call the proper constructor for that object
-      $stmts = array_merge($stmts, $this->create_constructor($node));
+      // First, create the global obj_inst variable
+      // Then create the constructor
+      $stmts[] = $this->create_obj_inst($node);
+      $stmts[] = $this->create_constructor($node);
       return $stmts;
     }
 
@@ -165,7 +164,7 @@
       $expr = new Expr\FuncCall($arr_merge, $args); 
       $var = new Expr\Variable($node->var->name);
       // Finally, create the assignment expression and return it
-      $objInst[] = new Expr\Assign($var, $expr);
+      $objInst = new Expr\Assign($var, $expr);
       return $objInst;
     }
 
@@ -195,8 +194,7 @@
       $obj_inst_arg = new Node\Arg($obj_inst_var);
       array_unshift($args, $obj_inst_arg);
       $func_call_stmt = new Expr\FuncCall($name, $args);
-      $func_call_array = array($func_call_stmt);
-      return $func_call_array;
+      return $func_call_stmt;
     }
 
     private function convert_class_node($node) {
