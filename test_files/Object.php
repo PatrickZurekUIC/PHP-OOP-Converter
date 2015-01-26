@@ -13,6 +13,10 @@
       echo $this->name . " is eating.\n";
     }
 
+    public static function static_fun($objInst){ 
+
+    }
+
     public function testFunc() {
       echo "Just a test function\n.";
     }
@@ -28,7 +32,7 @@
     public $weight;
     public function setWeightAndEat($weight) {
       $this->weight = $weight;  
-      //parent::eat();
+      parent::static_func();
       return "Test";
     }
   }
