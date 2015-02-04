@@ -1,10 +1,24 @@
-<?php 
+<?php
 require 'vendor/autoload.php';
 use PhpParser\Node;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Expr;
 
-  
+
+class MethodStmtVisitorForStatics extends PhpParser\NodeVisitorAbstract
+{
+
+    public function enterNode(Node $node) {
+        if ($node instanceof Expr\StaticPropertyFetch) {
+            echo "Found static prop fetch\n";
+            $name = "Testing";
+            $var = new Expr\Variable($name);
+            $global = new Stmt\Global_(array($var));
+            return $global;
+        }
+    }
+}
+
 // This class is the main workhorse of parse.php, visits all nodes in the program
 class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 {
@@ -36,19 +50,25 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 }
             }
 
+            $traverser = new PhpParser\NodeTraverser;
+            $traverser->addVisitor(new MethodStmtVisitorForStatics);
             $methods = $node->getMethods();
+            $stmts = array();
             foreach($methods as $method) {
-                foreach($method->stmts as $stmt) {
-                    echo "Found method statement\n";
-                }
+                //$traverser->traverse($method->stmts);
+                $stmts = array_merge($stmts, $traverser->traverse($method->stmts));
             }
+            //$nodeDumper = new PhpParser\NodeDumper;
+            //echo $nodeDumper->dump($stmts), "\n";
 
+            //$new_stmts = array_merge($stmts, $node->stmts);
+            //return $new_stmts;
 
         } elseif ($node->expr instanceof Expr\New_) {
             $this->obj_class_map[$node->var->name] = $node->expr->class->parts[0];
         }
     }
- 
+
     public function leaveNode(Node $node) {
         // If the node is a class, create the global functions corresponding to the
         // class methods, convert occurrences of this to objInst, and create the global
@@ -97,9 +117,27 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     }
 
     private function convert_static_call($node) {
+        echo "Found static call.  Current class is " . $this->current_class;
         $method = $node->name;
         $class = $node->class->parts[0];
         if ($class == "parent") {
+            $class = $this->current_class;
+            $class_methods = $this->methods_parents[$class]['methods'];
+            // Then determine the correct method to call (either the class' method
+            // or one of its ancestors if necessary
+            while (true) {
+                $parent = $this->methods_parents[$class]['parent'];
+                $class = $parent;
+                if (in_array($method, $this->methods_parents[$parent]['methods'])){
+                    break;
+                }
+            }
+            $args = $node->args;
+            $name = $class . "_" . $method;
+            $name = new Node\Name($name);
+            $func_call_stmt = new Expr\FuncCall($name, $args);
+            return $func_call_stmt;
+        } elseif ($class == "self") {
             $class = $this->current_class;
             $class_methods = $this->methods_parents[$class]['methods'];
             // Then determine the correct method to call (either the class' method
@@ -113,12 +151,30 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                     }
                 }
             }
+            $args = $node->args;
+            $name = $class . "_" . $method;
+            $name = new Node\Name($name);
+            $func_call_stmt = new Expr\FuncCall($name, $args);
+            return $func_call_stmt;
+        } else {
+          $class_methods = $this->methods_parents[$class]['methods'];
+          // Then determine the correct method to call (either the class' method
+          // or one of its ancestors if necessary
+          if (!in_array($method, $class_methods)) {
+              while (true) {
+                  $parent = $this->methods_parents[$class]['parent'];
+                  $class = $parent;
+                  if (in_array($method, $this->methods_parents[$parent]['methods'])){
+                      break;
+                  }
+              }
+          }
+          $args = $node->args;
+          $name = $class . "_" . $method;
+          $name = new Node\Name($name);
+          $func_call_stmt = new Expr\FuncCall($name, $args);
+          return $func_call_stmt;      
         }
-        $args = $node->args;
-        $name = $class . "_" . $method;
-        $name = new Node\Name($name);
-        $func_call_stmt = new Expr\FuncCall($name, $args);
-        return $func_call_stmt;
     }
 
     // Converts a node from the form $obj->method() to Class_method()
@@ -139,7 +195,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 }
             }
         }
- 
+
         // We know the correct function to call, now construct it and return it
         $func_call_name = $class . "_" . $method;
         $name = new Node\Name($func_call_name);
@@ -153,14 +209,19 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         return $func_call_stmt;
     }
 
+    // This function creates the global objInst variable representing a concrete
+    // instance of the class and then it determines and calls the correct
+    // constructor
     private function convert_new_node($node) {
         // First, create the global obj_inst variable
-        // Then create the constructor
+        // Then create the constructor call
         $stmts[] = $this->create_obj_inst($node);
         $stmts[] = $this->create_constructor($node);
         return $stmts;
     }
 
+    // Creates the concrete instance of the class.  It merges the member
+    // variables into the objInst with the type of the object.
     private function create_obj_inst($node) {
         // Create the array merge function expression
         // Start by creating the arguments to it
@@ -202,7 +263,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             }
         }
 
-        // We know the correct constructor function to call, now construct it and return it
+        // We know the correct constructor function to call,
+        // now construct it and return it
         $func_call_name = $class . $method;
         $name = new Node\Name($func_call_name);
         $args = $node->expr->args;
@@ -216,10 +278,16 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         return $func_call_stmt;
     }
 
+    // This function converts an entire class when it is encountered.
+    // 1. Convert the class methods to global functions of the
+    //    form Classname_methodname() adding objInst to the method signature.
+    // 2. Look for occurrences of "this" and convert it to objInst.
+    // 3. Create the global "Class" variable that holds its parent and it's
+    //    member variables.
     private function convert_class_node($node) {
         $factory = new PhpParser\BuilderFactory;
         $new_nodes = array();
-  
+
         // Convert the class' methods to global functions
         $methods = $node->getMethods();
         foreach($methods as $method_node) {
@@ -376,7 +444,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         return $new_nodes;
     }
 }
- 
+
 // This class traverses over the statements in a class' method and
 // converts occurrences of "this" to to use the objInst variable
 // Essentially $this->var becomes $objInst['var']
