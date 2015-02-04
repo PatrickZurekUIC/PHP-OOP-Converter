@@ -4,21 +4,6 @@ use PhpParser\Node;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Expr;
 
-
-class MethodStmtVisitorForStatics extends PhpParser\NodeVisitorAbstract
-{
-
-    public function enterNode(Node $node) {
-        if ($node instanceof Expr\StaticPropertyFetch) {
-            echo "Found static prop fetch\n";
-            $name = "Testing";
-            $var = new Expr\Variable($name);
-            $global = new Stmt\Global_(array($var));
-            return $global;
-        }
-    }
-}
-
 // This class is the main workhorse of parse.php, visits all nodes in the program
 class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 {
@@ -26,6 +11,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     private $obj_class_map = array();
     private $globals = array();
     private $current_class;
+    private $current_method;
 
     public function enterNode(Node $node) {
         if ($node instanceof Stmt\Class_) {
@@ -37,6 +23,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             }
             $this->methods_parents[$node->name] = array();
             $this->methods_parents[$node->name]['parent'] = $parent;
+            $this->methods_parents[$node->name]['globals'] = array();
             $this->methods_parents[$node->name]['methods'] = array();
             $methods = $node->getMethods();
             foreach($methods as $method_node) {
@@ -49,23 +36,13 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                     $this->methods_parents[$node->name]['statics'][] = $stmt->props[0]->name;
                 }
             }
-
-            $traverser = new PhpParser\NodeTraverser;
-            $traverser->addVisitor(new MethodStmtVisitorForStatics);
-            $methods = $node->getMethods();
-            $stmts = array();
-            foreach($methods as $method) {
-                //$traverser->traverse($method->stmts);
-                $stmts = array_merge($stmts, $traverser->traverse($method->stmts));
-            }
-            //$nodeDumper = new PhpParser\NodeDumper;
-            //echo $nodeDumper->dump($stmts), "\n";
-
-            //$new_stmts = array_merge($stmts, $node->stmts);
-            //return $new_stmts;
-
         } elseif ($node->expr instanceof Expr\New_) {
             $this->obj_class_map[$node->var->name] = $node->expr->class->parts[0];
+        } elseif ($node instanceof Expr\StaticPropertyFetch) {
+            return $this->convert_static_prop_fetch($node);
+        } elseif ($node instanceof Stmt\ClassMethod) {
+            //echo "Current method is: " . $this->current_method . ". Setting it to ". $node->name . "\n";
+            $this->current_method = $node->name;
         }
     }
 
@@ -74,6 +51,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         // class methods, convert occurrences of this to objInst, and create the global
         // "Class" variable holding the information about the class (__vars, etc)
         if ($node instanceof Stmt\Class_) {
+            // EXPERIMENTAL:
+            $this->current_class = null;
             return $this->convert_class_node($node);
         } elseif ($node->expr instanceof Expr\New_ ) {
             // If the node is creating a new object with "new"
@@ -94,30 +73,80 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             // Node is a call to a static class method.  Convert Class::method()
             // or parent::method() to the correct function Class_method();
             return $this->convert_static_call($node);
-        } elseif ($node instanceof Expr\StaticPropertyFetch) {
-            return $this->convert_static_prop_fetch($node);
+        } elseif ($node instanceof Stmt\ClassMethod) {
+            // EXPERIMENTAL
+            //echo "Current method is: " . $this->current_method . ". Setting it to NULL\n";
+            $this->current_method = null;
         }
     }
 
     private function convert_static_prop_fetch($node) {
         if ($node->class->parts[0] == "self") {
-            // Create the global variable and return it
-            // We can't return the actual "global $var" statement here so add it
-            // to an array.  We'll add it later when constructing the method
-            $name = $this->current_class . "_" . $node->name;
-            $var = new Expr\Variable($name);
-            $global = new Stmt\Global_(array($var));
-            $this->globals[] = $global;
-            return $var;
+          $class = $this->current_class;
+          $class_statics = $this->methods_parents[$class]['statics'];
+          $static = $node->name;
+          if (!in_array($static, $class_statics)) {
+              while (true) {
+                  $parent = $this->methods_parents[$class]['parent'];
+                  $class = $parent;
+                  if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                      break;
+                  }
+              }
+          }
+
+          $name = $class . "_" . $static;
+          $variable = new Expr\Variable($name);
+
+          $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+
+          return $variable;
+        } elseif ($node->class->parts[0] == "parent") {
+          $class = $this->current_class;
+          $class_statics = $this->methods_parents[$class]['statics'];
+          $static = $node->name;
+
+          while (true) {
+              $parent = $this->methods_parents[$class]['parent'];
+              $class = $parent;
+              if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                  break;
+              }
+          }
+
+          $name = $class . "_" . $static;
+          $variable = new Expr\Variable($name);
+
+          $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+
+          return $variable;
         } else {
-            $name = $node->class->parts[0] . "_" . $node->name;
+            $class = $node->class->parts[0];
+            $class_statics = $this->methods_parents[$class]['statics'];
+            $static = $node->name;
+            if (!in_array($static, $class_statics)) {
+                while (true) {
+                    $parent = $this->methods_parents[$class]['parent'];
+                    $class = $parent;
+                    if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                        break;
+                    }
+                }
+            }
+
+            $name = $class . "_" . $static;
             $variable = new Expr\Variable($name);
+
+            if ($this->current_class != null && $this->current_method != null) {
+              $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+              //echo "Adding " . $name . " to " . $this->current_class . "::" . $this->current_method;
+            }
+
             return $variable;
         }
     }
 
     private function convert_static_call($node) {
-        echo "Found static call.  Current class is " . $this->current_class;
         $method = $node->name;
         $class = $node->class->parts[0];
         if ($class == "parent") {
@@ -173,7 +202,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
           $name = $class . "_" . $method;
           $name = new Node\Name($name);
           $func_call_stmt = new Expr\FuncCall($name, $args);
-          return $func_call_stmt;      
+          return $func_call_stmt;
         }
     }
 
@@ -308,11 +337,16 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
             // Add "global $var" statements for any static variables we encountered
             // in the original method
-            foreach ($this->globals as $global) {
-                $new_node = $new_node->addStmt($global);
+            if (array_key_exists($method_node->name, $this->methods_parents[$node->name])) {
+                echo "Array key exists for : " . $method_node->name;
+                foreach ($this->methods_parents[$node->name][$method_node->name] as $global) {
+                    $var = new Expr\Variable($global);
+                    $stmts[] = new Stmt\Global_(array($var));
+                }
+                foreach($stmts as $stmt) {
+                  $new_node = $new_node->addStmt($stmt);
+                }
             }
-            // And reset the globals array
-            $this->globals = array();
 
             // Traverse over the statements in the class methods and convert occurrences
             // of "this" to use objInst
