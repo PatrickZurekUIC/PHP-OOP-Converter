@@ -254,9 +254,17 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     private function create_obj_inst($node) {
         // Create the array merge function expression
         // Start by creating the arguments to it
-        $class_var_name = new Expr\Variable($node->expr->class->parts[0]);
+
+        // Replaced the below with an access to the GLOBALS superglobal
+        /*$class_var_name = new Expr\Variable($node->expr->class->parts[0]);
         $arr_dim = new Node\Scalar\String("__vars");
-        $first_arg_val = new Expr\ArrayDimFetch($class_var_name, $arr_dim);
+        $first_arg_val = new Expr\ArrayDimFetch($class_var_name, $arr_dim);*/
+
+        $globals_var = new Expr\Variable("GLOBALS");
+        $first_arr_dim = new Node\Scalar\String($node->expr->class->parts[0]);
+        $second_arr_dim = new Node\Scalar\String("__vars");
+        $inner_dim_fetch = new Expr\ArrayDimFetch($globals_var, $first_arr_dim);
+        $first_arg_val = new Expr\ArrayDimFetch($inner_dim_fetch, $second_arr_dim);
 
         $key = new Node\Scalar\String("__type");
         $value = new Node\Scalar\String($node->expr->class->parts[0]);
