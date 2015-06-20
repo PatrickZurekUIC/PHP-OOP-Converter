@@ -287,7 +287,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         $class = $node->expr->class->parts[0];
         // Can also find class like so:
         //$class = $this->obj_class_map[$node->var->name];
-        $class_methods = $this->methods_parents[$class]['methods'];
+        /*$class_methods = $this->methods_parents[$class]['methods'];
         // Then determine the correct constructor to call (either the class'
         // or one of its ancestors if necessary)
         if (!in_array($method, $class_methods)) {
@@ -298,7 +298,9 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                     break;
                 }
             }
-        }
+        } */
+
+        
 
         // We know the correct constructor function to call,
         // now construct it and return it
@@ -324,51 +326,119 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     private function convert_class_node($node) {
         $factory = new PhpParser\BuilderFactory;
         $new_nodes = array();
+        $explicit_constructor = False;
 
         // Convert the class' methods to global functions
         $methods = $node->getMethods();
+
         foreach($methods as $method_node) {
             // Create the new function and name it
             if ($method_node->name == '__construct') {
+                $explicit_constructor = True;
                 $new_node = $factory->function($node->name . $method_node->name);
-            } else {
-                $new_node = $factory->function($node->name . "_" . $method_node->name);
-            }
-            // Add the method parameters to the function signature
-            // if it is not a static method (we don't need objInst in this case)
-            if ($method_node->type != 9) {
-                $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
-            }
-            foreach($method_node->params as $param) {
-                $new_node = $new_node->addParam($param);
-            }
+                $argsParam = new PhpParser\Builder\Param("args");
+                $new_node = $new_node->addParam($argsParam);
 
-            // Add "global $var" statements for any static variables we encountered
-            // in the original method
-            if (array_key_exists($method_node->name, $this->methods_parents[$node->name])) {
-                echo "Array key exists for : " . $method_node->name;
-                foreach ($this->methods_parents[$node->name][$method_node->name] as $global) {
-                    $var = new Expr\Variable($global);
-                    $stmts[] = new Stmt\Global_(array($var));
+                $name = "objInst";
+                
+                $arr_dim = new Node\Scalar\LNumber(0);
+                $array_name = new Expr\Variable("args");
+                $array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
+
+                $var = new Expr\Variable($name);
+                $objInst = new Expr\Assign($var, $array_fetch);
+
+                $new_node = $new_node->addStmt($objInst);
+
+                $i = 1;
+                foreach($method_node->params as $param) {
+
+                    
+                    $arr_dim = new Node\Scalar\LNumber($i++);
+                    $array_name = new Expr\Variable("args");
+                    $array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
+
+                    $var = new Expr\Variable($param->name);
+                    $new_var_expr = new Expr\Assign($var, $array_fetch);
+                    $new_node = $new_node->addStmt($new_var_expr);
                 }
+
+                $traverser = new PhpParser\NodeTraverser;
+                $traverser->addVisitor(new MethodStmtVisitor);
+                $stmts = $traverser->traverse($method_node->stmts);
+
+                // Add the statements from the original method to the function
                 foreach($stmts as $stmt) {
-                  $new_node = $new_node->addStmt($stmt);
+                    $new_node = $new_node->addStmt($stmt);
                 }
-            }
 
-            // Traverse over the statements in the class methods and convert occurrences
-            // of "this" to use objInst
-            $traverser = new PhpParser\NodeTraverser;
-            $traverser->addVisitor(new MethodStmtVisitor);
-            $stmts = $traverser->traverse($method_node->stmts);
+                $new_node = $new_node->getNode();
+                $new_nodes[] = $new_node;
+            } else { 
 
-            // Add the statements from the original method to the function
-            foreach($stmts as $stmt) {
-                $new_node = $new_node->addStmt($stmt);
+                $new_node = $factory->function($node->name . "_" . $method_node->name);
+            
+                // Add the method parameters to the function signature
+                // if it is not a static method (we don't need objInst in this case)
+                if ($method_node->type != 9) {
+                    $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
+                }
+                foreach($method_node->params as $param) {
+                    $new_node = $new_node->addParam($param);
+                }
+
+                // Add "global $var" statements for any static variables we encountered
+                // in the original method
+                if (array_key_exists($method_node->name, $this->methods_parents[$node->name])) {
+                    echo "Array key exists for : " . $method_node->name;
+                    foreach ($this->methods_parents[$node->name][$method_node->name] as $global) {
+                        $var = new Expr\Variable($global);
+                        $stmts[] = new Stmt\Global_(array($var));
+                    }
+                    foreach($stmts as $stmt) {
+                      $new_node = $new_node->addStmt($stmt);
+                    }
+                }
+
+                // Traverse over the statements in the class methods and convert occurrences
+                // of "this" to use objInst
+                $traverser = new PhpParser\NodeTraverser;
+                $traverser->addVisitor(new MethodStmtVisitor);
+                $stmts = $traverser->traverse($method_node->stmts);
+
+                // Add the statements from the original method to the function
+                foreach($stmts as $stmt) {
+                    $new_node = $new_node->addStmt($stmt);
+                }
+                $new_node = $new_node->getNode();
+                $new_nodes[] = $new_node;
             }
+        }
+
+        if (!$explicit_constructor) {
+            $new_node = $factory->function($node->name . '__construct');
+
+
+            // If no explicit constructor create one and call parent.  But if not extends, what do we do?
+            if ($node->extends instanceof Node\Name) {
+                $parent = $node->extends->toString();
+            }
+            $name = $parent . "__construct";
+            $name = new Node\Name($name);
+
+            $get_args_func = new Node\Name("func_get_args");
+            $args = array();
+            $arg = new Expr\FuncCall($get_args_func, $args);
+            $args[] = new Node\Arg($arg);
+            
+            $func_call_stmt = new Expr\FuncCall($name, $args);
+
+            
+            $new_node = $new_node->addStmt($func_call_stmt);
             $new_node = $new_node->getNode();
             $new_nodes[] = $new_node;
         }
+
 
         // Now create the global variable for the class that holds its parent
         // and its member variables
