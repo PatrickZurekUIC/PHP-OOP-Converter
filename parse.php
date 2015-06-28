@@ -186,6 +186,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             $func_call_stmt = new Expr\FuncCall($name, $args);
             return $func_call_stmt;
         } else {
+            
           $class_methods = $this->methods_parents[$class]['methods'];
           // Then determine the correct method to call (either the class' method
           // or one of its ancestors if necessary
@@ -202,14 +203,14 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
           $name = $class . "_" . $method;
           $name = new Node\Name($name);
           $func_call_stmt = new Expr\FuncCall($name, $args);
-          return $func_call_stmt;
+          return $func_call_stmt; 
         }
     }
 
     // Converts a node from the form $obj->method() to Class_method()
     // and prepends the objInst variable to the arguments list
     private function convert_method_call($node) {
-        $method = $node->name;
+      /*  $method = $node->name;
         // Find what class this object belongs to
         $class = $this->obj_class_map[$node->var->name];
         $class_methods = $this->methods_parents[$class]['methods'];
@@ -224,7 +225,28 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 }
             }
         }
+        */
+        
 
+
+        //$class = ucfirst($node->var->name);
+
+        // Find the correct method to call, either the class' own method or if it doesn't exist,
+        // then one of its parents
+        global $pp_class_methods;
+        global $pp_parent_array;
+        
+        $method = $node->name;
+        echo "About to search for method: $method\n";
+        $class = $this->obj_class_map[$node->var->name];
+        echo "Checking class: $class\n";
+        while (!in_array($method, $pp_class_methods[$class])) {
+            $class = $pp_parent_array[$class];
+            echo "Not found, now checking class: $class\n";
+        }
+        // Found the right class now create the method
+
+        $method = $node->name;
         // We know the correct function to call, now construct it and return it
         $func_call_name = $class . "_" . $method;
         $name = new Node\Name($func_call_name);
@@ -236,6 +258,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         $func_call_stmt = new Expr\FuncCall($name, $args);
 
         return $func_call_stmt;
+
     }
 
     // This function creates the global objInst variable representing a concrete
@@ -282,25 +305,24 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     }
 
     private function create_constructor($node) {
-        $method = "__construct";
+
         // Find what class this object belongs to
         $class = $node->expr->class->parts[0];
-        // Can also find class like so:
-        //$class = $this->obj_class_map[$node->var->name];
-        /*$class_methods = $this->methods_parents[$class]['methods'];
-        // Then determine the correct constructor to call (either the class'
-        // or one of its ancestors if necessary)
-        if (!in_array($method, $class_methods)) {
-            while (true) {
-                $parent = $this->methods_parents[$class]['parent'];
-                $class = $parent;
-                if (in_array($method, $this->methods_parents[$parent]['methods'])){
-                    break;
-                }
-            }
-        } */
 
-        
+        // Find the correct constructor to call, either the class' own method or if it doesn't exist,
+        // then one of its parents
+        global $pp_class_methods;
+        global $pp_parent_array;
+        $method = "__construct";
+        $class = $this->obj_class_map[$node->var->name];
+        echo "Checking class: $class for constructor\n";
+        while (!in_array($method, $pp_class_methods[$class])) {
+            print_r($pp_class_methods[$class]);
+            $class = $pp_parent_array[$class];
+            echo "Constructor not found, now checking class: $class\n";
+        }
+        // Found the right class now create the method
+
 
         // We know the correct constructor function to call,
         // now construct it and return it
@@ -332,6 +354,10 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         $methods = $node->getMethods();
 
         foreach($methods as $method_node) {
+
+            // This is used below when constructing the shim functions
+            $method_names[] = $method_node->name;
+
             // Create the new function and name it
             if ($method_node->name == '__construct') {
                 $explicit_constructor = True;
@@ -414,15 +440,16 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 $new_nodes[] = $new_node;
             }
         }
+        
+     /*   if (!$explicit_constructor) {
 
-        if (!$explicit_constructor) {
             $new_node = $factory->function($node->name . '__construct');
-
 
             // If no explicit constructor create one and call parent.  But if not extends, what do we do?
             if ($node->extends instanceof Node\Name) {
                 $parent = $node->extends->toString();
             }
+            echo "creating constructor for " . $node->name . "\n";
             $name = $parent . "__construct";
             $name = new Node\Name($name);
 
@@ -438,7 +465,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             $new_node = $new_node->getNode();
             $new_nodes[] = $new_node;
         }
-
+*/
 
         // Now create the global variable for the class that holds its parent
         // and its member variables
@@ -555,7 +582,28 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
         return $new_nodes;
     }
+
+    private function create_shim_function($shim_method, $child, $parent) {
+        $factory = new PhpParser\BuilderFactory;
+        $new_node = $factory->function($child . '_' . $shim_method);
+
+        $name = $parent . "_" . $shim_method;
+        $name = new Node\Name($name);
+
+        $get_args_func = new Node\Name("func_get_args");
+        $args = array();
+        $arg = new Expr\FuncCall($get_args_func, $args);
+        $args[] = new Node\Arg($arg);
+        
+        $func_call_stmt = new Expr\FuncCall($name, $args);
+ 
+        $new_node = $new_node->addStmt($func_call_stmt);
+        $new_node = $new_node->getNode();
+        return $new_node;
+    }
+
 }
+
 
 // This class traverses over the statements in a class' method and
 // converts occurrences of "this" to to use the objInst variable
@@ -576,35 +624,75 @@ class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
     }
 }
 
+
+class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
+{
+    public function leaveNode(Node $node) {
+        global $pp_parent_array;
+        global $pp_class_methods;
+        if ($node instanceof Stmt\Class_) {
+            global $parent_array;
+            if ($node->extends instanceof Node\Name) {
+                $parent = $node->extends->toString();
+            } else {
+                $parent = null;
+            }
+            $pp_parent_array[$node->name] = $parent; 
+            $methods = $node->getMethods();
+            foreach($methods as $method_node) {
+                if ($method_node->isPublic() || $method_node->isProtected) {
+                    $pp_class_methods[$node->name][] = $method_node->name;
+                    echo "Added class method " . $method_node->name . " to array\n";
+                }
+            }
+        }
+    }
+}
+
+
 ////////////////////////
 // Begin "main"
-////////////////////////
-if (sizeof($argv) != 3) {
+////////////////////////    
+if (sizeof($argv) != 1) {
     echo "Invalid number of arguments\n";
     exit(0);
 }
 
 $parser = new PhpParser\Parser(new PhpParser\Lexer);
+
+$preprocessor = new PhpParser\NodeTraverser;
+$preprocessor->addVisitor(new AllNodePreprocessor);
+
 $traverser = new PhpParser\NodeTraverser;
 $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
 $traverser->addVisitor(new AllNodeVisitor);
-$code = file_get_contents($argv[1]);
-try {
-    $stmts = $parser->parse($code);
-    if ($argv[2] == "nodedump") {
-        $nodeDumper = new PhpParser\NodeDumper;
-        echo $nodeDumper->dump($stmts), "\n";
-        exit(0);
+
+$in_dir = "input/";
+$out_dir = "output/";
+
+$files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($in_dir));
+$files = new RegexIterator($files, '/\.php$/');
+
+foreach ($files as $file) {
+   $code = file_get_contents($file);
+    try {
+        $stmts = $parser->parse($code);
+        $preprocessor->traverse($stmts);
+    } catch (PhpParser\Error $e) {
+        echo "Parse Error";
     }
-    $stmts = $traverser->traverse($stmts);
-    $code = $prettyPrinter->prettyPrintFile($stmts);
-    if ($argv[2] == "-") {
-        echo $code . "\n";
-    } else {
-        file_put_contents($argv[2], $code);
+}
+
+foreach ($files as $file) {
+   $code = file_get_contents($file);
+    try {
+        $stmts = $parser->parse($code);
+        $stmts = $traverser->traverse($stmts);
+        $code = $prettyPrinter->prettyPrintFile($stmts);
+        file_put_contents(substr_replace($file->getPathname(), $out_dir, 0, strlen($in_dir)), $code);
+    } catch (PhpParser\Error $e) {
+        echo "Parse Error";
     }
-} catch (PhpParser\Error $e) {
-    echo "Parse Error";
 }
 
 ?>
