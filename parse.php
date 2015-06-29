@@ -148,6 +148,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
     private function convert_static_call($node) {
         $method = $node->name;
+        global $pp_parent_array;
+        global $pp_static_class_methods;
         $class = $node->class->parts[0];
         if ($class == "parent") {
             $class = $this->current_class;
@@ -168,69 +170,36 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             return $func_call_stmt;
         } elseif ($class == "self") {
             $class = $this->current_class;
-            $class_methods = $this->methods_parents[$class]['methods'];
-            // Then determine the correct method to call (either the class' method
-            // or one of its ancestors if necessary
-            if (!in_array($method, $class_methods)) {
-                while (true) {
-                    $parent = $this->methods_parents[$class]['parent'];
-                    $class = $parent;
-                    if (in_array($method, $this->methods_parents[$parent]['methods'])){
-                        break;
-                    }
-                }
+            echo "Found self, current class is : $class and method is: $method\n";
+            while (!in_array($method, $pp_static_class_methods[$class])) {
+                $class = $pp_parent_array[$class];
+                echo "Not found, now checking class: $class\n";
             }
             $args = $node->args;
             $name = $class . "_" . $method;
             $name = new Node\Name($name);
             $func_call_stmt = new Expr\FuncCall($name, $args);
-            return $func_call_stmt;
+            return $func_call_stmt; 
         } else {
-            
-          $class_methods = $this->methods_parents[$class]['methods'];
-          // Then determine the correct method to call (either the class' method
-          // or one of its ancestors if necessary
-          if (!in_array($method, $class_methods)) {
-              while (true) {
-                  $parent = $this->methods_parents[$class]['parent'];
-                  $class = $parent;
-                  if (in_array($method, $this->methods_parents[$parent]['methods'])){
-                      break;
-                  }
-              }
-          }
-          $args = $node->args;
-          $name = $class . "_" . $method;
-          $name = new Node\Name($name);
-          $func_call_stmt = new Expr\FuncCall($name, $args);
-          return $func_call_stmt; 
+            // The static function call is outside a class method of
+            // the form Class::method()
+            $class = $node->class->parts[0];
+            $methods = $pp_static_class_methods[$class];
+            while (!in_array($method, $pp_static_class_methods[$class])) {
+                $class = $pp_parent_array[$class];
+                echo "Not found, now checking class: $class\n";
+            }
+            $args = $node->args;
+            $name = $class . "_" . $method;
+            $name = new Node\Name($name);
+            $func_call_stmt = new Expr\FuncCall($name, $args);
+            return $func_call_stmt; 
         }
     }
 
     // Converts a node from the form $obj->method() to Class_method()
     // and prepends the objInst variable to the arguments list
     private function convert_method_call($node) {
-      /*  $method = $node->name;
-        // Find what class this object belongs to
-        $class = $this->obj_class_map[$node->var->name];
-        $class_methods = $this->methods_parents[$class]['methods'];
-        // Then determine the correct method to call (either the class' method
-        // or one of its ancestors if necessary
-        if (!in_array($method, $class_methods)) {
-            while (true) {
-                $parent = $this->methods_parents[$class]['parent'];
-                $class = $parent;
-                if (in_array($method, $this->methods_parents[$parent]['methods'])){
-                    break;
-                }
-            }
-        }
-        */
-        
-
-
-        //$class = ucfirst($node->var->name);
-
         // Find the correct method to call, either the class' own method or if it doesn't exist,
         // then one of its parents
         global $pp_class_methods;
@@ -245,9 +214,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             echo "Not found, now checking class: $class\n";
         }
         // Found the right class now create the method
-
-        $method = $node->name;
-        // We know the correct function to call, now construct it and return it
         $func_call_name = $class . "_" . $method;
         $name = new Node\Name($func_call_name);
         $args = $node->args;
@@ -440,32 +406,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 $new_nodes[] = $new_node;
             }
         }
-        
-     /*   if (!$explicit_constructor) {
-
-            $new_node = $factory->function($node->name . '__construct');
-
-            // If no explicit constructor create one and call parent.  But if not extends, what do we do?
-            if ($node->extends instanceof Node\Name) {
-                $parent = $node->extends->toString();
-            }
-            echo "creating constructor for " . $node->name . "\n";
-            $name = $parent . "__construct";
-            $name = new Node\Name($name);
-
-            $get_args_func = new Node\Name("func_get_args");
-            $args = array();
-            $arg = new Expr\FuncCall($get_args_func, $args);
-            $args[] = new Node\Arg($arg);
-            
-            $func_call_stmt = new Expr\FuncCall($name, $args);
-
-            
-            $new_node = $new_node->addStmt($func_call_stmt);
-            $new_node = $new_node->getNode();
-            $new_nodes[] = $new_node;
-        }
-*/
 
         // Now create the global variable for the class that holds its parent
         // and its member variables
@@ -630,6 +570,7 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
     public function leaveNode(Node $node) {
         global $pp_parent_array;
         global $pp_class_methods;
+        global $pp_static_class_methods;
         if ($node instanceof Stmt\Class_) {
             global $parent_array;
             if ($node->extends instanceof Node\Name) {
@@ -643,6 +584,8 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
                 if ($method_node->isPublic() || $method_node->isProtected) {
                     $pp_class_methods[$node->name][] = $method_node->name;
                     echo "Added class method " . $method_node->name . " to array\n";
+                } elseif ($method_node->isStatic()) {
+                    $pp_static_class_methods[$node->name][] = $method_node->name;
                 }
             }
         }
