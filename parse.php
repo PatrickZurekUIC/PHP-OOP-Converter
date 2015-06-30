@@ -605,8 +605,9 @@ $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($in_dir));
 $files = new RegexIterator($files, '/\.php$/');
 
 foreach ($files as $file) {
-   $code = file_get_contents($file);
-    try {
+    echo "Filename: $file->getFilename()\n";
+    $code = file_get_contents($file);
+     try {
         $stmts = $parser->parse($code);
         $preprocessor->traverse($stmts);
     } catch (PhpParser\Error $e) {
