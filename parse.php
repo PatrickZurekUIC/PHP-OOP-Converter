@@ -147,21 +147,14 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     }
 
     private function convert_static_call($node) {
-        $method = $node->name;
         global $pp_parent_array;
         global $pp_static_class_methods;
+        $method = $node->name;
         $class = $node->class->parts[0];
         if ($class == "parent") {
-            $class = $this->current_class;
-            $class_methods = $this->methods_parents[$class]['methods'];
-            // Then determine the correct method to call (either the class' method
-            // or one of its ancestors if necessary
-            while (true) {
-                $parent = $this->methods_parents[$class]['parent'];
-                $class = $parent;
-                if (in_array($method, $this->methods_parents[$parent]['methods'])){
-                    break;
-                }
+            $class = $pp_parent_array[$this->current_class];
+            while (!in_array($method, $pp_static_class_methods[$class])) {
+                $class = $pp_parent_array[$class];
             }
             $args = $node->args;
             $name = $class . "_" . $method;
@@ -170,10 +163,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             return $func_call_stmt;
         } elseif ($class == "self") {
             $class = $this->current_class;
-            echo "Found self, current class is : $class and method is: $method\n";
             while (!in_array($method, $pp_static_class_methods[$class])) {
                 $class = $pp_parent_array[$class];
-                echo "Not found, now checking class: $class\n";
             }
             $args = $node->args;
             $name = $class . "_" . $method;
@@ -187,7 +178,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             $methods = $pp_static_class_methods[$class];
             while (!in_array($method, $pp_static_class_methods[$class])) {
                 $class = $pp_parent_array[$class];
-                echo "Not found, now checking class: $class\n";
             }
             $args = $node->args;
             $name = $class . "_" . $method;
@@ -344,8 +334,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
                 $i = 1;
                 foreach($method_node->params as $param) {
-
-                    
                     $arr_dim = new Node\Scalar\LNumber($i++);
                     $array_name = new Expr\Variable("args");
                     $array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
@@ -372,7 +360,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             
                 // Add the method parameters to the function signature
                 // if it is not a static method (we don't need objInst in this case)
-                if ($method_node->type != 9) {
+                if (!$method_node->isStatic()) {
                     $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
                 }
                 foreach($method_node->params as $param) {

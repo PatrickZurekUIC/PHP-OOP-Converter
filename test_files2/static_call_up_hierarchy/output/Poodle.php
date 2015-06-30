@@ -7,9 +7,9 @@ function Poodle_poodleMethod2(&$objInst)
 {
     echo 'This is a call to PoodleMethod2
 ';
-    Poodle_privPoodleMethod();
+    Pet_statMethod();
 }
-function Poodle_privPoodleMethod(&$objInst)
+function Poodle_privPoodleMethod()
 {
     echo 'This is a call to privPoodleMethod in Poodle.
 ';

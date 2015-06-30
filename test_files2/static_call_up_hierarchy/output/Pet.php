@@ -17,7 +17,7 @@ function Pet_petMethod2(&$objInst)
 function Pet_privPetMethod(&$objInst)
 {
 }
-function Pet_statMethod(&$objInst)
+function Pet_statMethod()
 {
     echo 'Call to static statMethod in Pet
 ';

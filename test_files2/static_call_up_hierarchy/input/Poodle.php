@@ -8,7 +8,7 @@
 
         public function poodleMethod2() {
             echo "This is a call to PoodleMethod2\n";
-            self::privPoodleMethod();
+            parent::statMethod();
         }
 
         static function privPoodleMethod() {
