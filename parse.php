@@ -584,7 +584,7 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
 ////////////////////////
 // Begin "main"
 ////////////////////////    
-if (sizeof($argv) != 1) {
+if (sizeof($argv) < 1 || sizeof($argv) > 3) {
     echo "Invalid number of arguments\n";
     exit(0);
 }
@@ -598,8 +598,43 @@ $traverser = new PhpParser\NodeTraverser;
 $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
 $traverser->addVisitor(new AllNodeVisitor);
 
-$in_dir = "input/";
-$out_dir = "output/";
+// This is the added code to check for user-specified input and output directories
+// ----------------------------------------------------------------------------
+if (sizeof($argv) >= 2) {
+	if (preg_match('(/?[a-zA-Z_0-9]+/$)', $argv[1])) {
+		$in_dir = $argv[1];
+	} else
+		$in_dir = "input/";
+
+	if (sizeof($argv) == 3) {
+		if (preg_match('(/?[a-zA-Z_0-9]+/$)', $argv[2]))
+			$out_dir = $argv[2];
+		else
+			$out_dir = "output/";
+	} else
+		$out_dir = "output/";
+
+} else {
+	$in_dir = "input/";
+	$out_dir = "output/";
+}
+
+
+// Checks existence of output directory and creates it if it does not exist
+if (!file_exists($out_dir)) {
+	echo "Path: " . $out_dir . "does not exist. Create it? (Y/N): ";
+	$ans = readline();
+	if (preg_match('/^(Y|y)$/', $ans)) {
+		if (!mkdir($out_dir, 0777, true)) {
+			echo "Could not create directory.";
+			exit(0);
+		}  
+	} else {
+			echo "Quitting...";
+			exit(0);
+	}
+}
+// ------------------------------------------------------------------------------
 
 $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($in_dir));
 $files = new RegexIterator($files, '/\.php$/');
@@ -621,6 +656,14 @@ foreach ($files as $file) {
         $stmts = $parser->parse($code);
         $stmts = $traverser->traverse($stmts);
         $code = $prettyPrinter->prettyPrintFile($stmts);
+		$f_out = substr_replace($file->getPathname(), $out_dir, 0, strlen($in_dir)); // Current output file
+		$f_out_dir = substr($f_out, 0, strrpos($f_out, '/'));                        // Current output directory
+		if (!file_exists($f_out_dir)) {                                              // Check directories and create, as necessary
+			if (!mkdir($f_out_dir, 0777, true)) {
+				echo "Could not create directory.";
+				exit(0);
+			}
+		}
         file_put_contents(substr_replace($file->getPathname(), $out_dir, 0, strlen($in_dir)), $code);
     } catch (PhpParser\Error $e) {
         echo "Parse Error";
