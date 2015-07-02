@@ -8,7 +8,6 @@ use PhpParser\Node\Expr;
 class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 {
     private $methods_parents = array();
-    private $obj_class_map = array();
     private $globals = array();
     private $current_class;
     private $current_method;
@@ -36,8 +35,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                     $this->methods_parents[$node->name]['statics'][] = $stmt->props[0]->name;
                 }
             }
-        } elseif ($node->expr instanceof Expr\New_) {
-            $this->obj_class_map[$node->var->name] = $node->expr->class->parts[0];
         } elseif ($node instanceof Expr\StaticPropertyFetch) {
             return $this->convert_static_prop_fetch($node);
         } elseif ($node instanceof Stmt\ClassMethod) {
@@ -194,14 +191,14 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         // then one of its parents
         global $pp_class_methods;
         global $pp_parent_array;
+        global $obj_class_map;
         
         $method = $node->name;
-        echo "About to search for method: $method\n";
-        $class = $this->obj_class_map[$node->var->name];
-        echo "Checking class: $class\n";
+
+        $class = $obj_class_map[$node->var->name];
+        echo "Looking for method: $method in class $class\n";
         while (!in_array($method, $pp_class_methods[$class])) {
             $class = $pp_parent_array[$class];
-            echo "Not found, now checking class: $class\n";
         }
         // Found the right class now create the method
         $func_call_name = $class . "_" . $method;
@@ -269,8 +266,9 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         // then one of its parents
         global $pp_class_methods;
         global $pp_parent_array;
+        global $obj_class_map;
         $method = "__construct";
-        $class = $this->obj_class_map[$node->var->name];
+        $class = $obj_class_map[$node->var->name];
         echo "Checking class: $class for constructor\n";
         while (!in_array($method, $pp_class_methods[$class])) {
             print_r($pp_class_methods[$class]);
@@ -559,7 +557,14 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
         global $pp_parent_array;
         global $pp_class_methods;
         global $pp_static_class_methods;
-        if ($node instanceof Stmt\Class_) {
+        global $obj_class_map;
+
+        if ($node->expr instanceof Expr\New_) {
+            $val = $node->expr->class->parts[0];
+            $key = $node->var->name;
+            echo "Adding $key to $val\n";
+            $obj_class_map[$node->var->name] = $node->expr->class->parts[0];
+        } else if ($node instanceof Stmt\Class_) {
             global $parent_array;
             if ($node->extends instanceof Node\Name) {
                 $parent = $node->extends->toString();
@@ -568,13 +573,13 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
             }
             $pp_parent_array[$node->name] = $parent; 
             $methods = $node->getMethods();
-            foreach($methods as $method_node) {
-                if ($method_node->isPublic() || $method_node->isProtected) {
-                    $pp_class_methods[$node->name][] = $method_node->name;
-                    echo "Added class method " . $method_node->name . " to array\n";
-                } elseif ($method_node->isStatic()) {
+            foreach($methods as $method_node) {        
+                if ($method_node->isStatic()) {
                     $pp_static_class_methods[$node->name][] = $method_node->name;
                 }
+                if ($method_node->isPublic() || $method_node->isProtected) {
+                    $pp_class_methods[$node->name][] = $method_node->name;
+                } 
             }
         }
     }
@@ -598,9 +603,15 @@ $traverser = new PhpParser\NodeTraverser;
 $prettyPrinter = new PhpParser\PrettyPrinter\Standard;
 $traverser->addVisitor(new AllNodeVisitor);
 
+if (sizeof($argv == 2) && $argv[1] == 'nodedump') {
+    $nodedump = True;
+    $in_dir = $argv[2];
+    echo "here";
+}
+
 // This is the added code to check for user-specified input and output directories
 // ----------------------------------------------------------------------------
-if (sizeof($argv) >= 2) {
+else if (sizeof($argv) >= 2) {
 	if (preg_match('(/?[a-zA-Z_0-9]+/$)', $argv[1])) {
 		$in_dir = $argv[1];
 	} else
@@ -621,7 +632,7 @@ if (sizeof($argv) >= 2) {
 
 
 // Checks existence of output directory and creates it if it does not exist
-if (!file_exists($out_dir)) {
+if (!file_exists($out_dir) && !$nodedump) {
 	echo "Path: " . $out_dir . "does not exist. Create it? (Y/N): ";
 	$ans = readline();
 	if (preg_match('/^(Y|y)$/', $ans)) {
@@ -639,8 +650,19 @@ if (!file_exists($out_dir)) {
 $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($in_dir));
 $files = new RegexIterator($files, '/\.php$/');
 
+if ($nodedump) {
+    $nodeDumper = new PhpParser\NodeDumper;
+    foreach ($files as $file) {
+        $code = file_get_contents($file);
+        echo "Dumping nodes for $file\n";
+        $stmts = $parser->parse($code);
+        echo $nodeDumper->dump($stmts), "\n";
+    }
+    exit(0);
+}
+
 foreach ($files as $file) {
-    echo "Filename: $file->getFilename()\n";
+    echo "Scanning file: $file\n";
     $code = file_get_contents($file);
      try {
         $stmts = $parser->parse($code);
@@ -651,7 +673,7 @@ foreach ($files as $file) {
 }
 
 foreach ($files as $file) {
-   $code = file_get_contents($file);
+    $code = file_get_contents($file);
     try {
         $stmts = $parser->parse($code);
         $stmts = $traverser->traverse($stmts);
