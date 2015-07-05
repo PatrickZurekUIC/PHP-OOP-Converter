@@ -74,7 +74,19 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             // EXPERIMENTAL
             //echo "Current method is: " . $this->current_method . ". Setting it to NULL\n";
             $this->current_method = null;
+        } elseif ($node instanceof Expr\PropertyFetch) {
+            return $this->convert_property_fetch($node);
         }
+    }
+
+    private function convert_property_fetch($node) {
+        $objInst = $node->var->name;
+        if ($objInst == 'this') {
+            return null;
+        }
+        $key_name = new Node\Scalar\String($node->name);
+        $var_name = new Expr\Variable($objInst);
+        return new Expr\ArrayDimFetch($var_name, $key_name); 
     }
 
     private function convert_static_prop_fetch($node) {
@@ -359,33 +371,27 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
             // Create the new function and name it
             if ($method_node->name == '__construct') {
-                $explicit_constructor = True;
                 $new_node = $factory->function($node->name . $method_node->name);
-                $argsParam = new PhpParser\Builder\Param("args");
-                $new_node = $new_node->addParam($argsParam);
-
-                $name = "objInst";
                 
-                $arr_dim = new Node\Scalar\LNumber(0);
-                $array_name = new Expr\Variable("args");
-                $array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
-
-                $var = new Expr\Variable($name);
-                $objInst = new Expr\Assign($var, $array_fetch);
-
-                $new_node = $new_node->addStmt($objInst);
-
-                $i = 1;
+                $new_node = $new_node->addParam($factory->param("objInst")->makeByRef());
+                
                 foreach($method_node->params as $param) {
-                    $arr_dim = new Node\Scalar\LNumber($i++);
-                    $array_name = new Expr\Variable("args");
-                    $array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
-
-                    $var = new Expr\Variable($param->name);
-                    $new_var_expr = new Expr\Assign($var, $array_fetch);
-                    $new_node = $new_node->addStmt($new_var_expr);
+                    $new_node = $new_node->addParam($param);
                 }
-
+                // Add "global $var" statements for any static variables we encountered
+                // in the original method
+                if (array_key_exists($method_node->name, $this->methods_parents[$node->name])) {
+                    echo "Array key exists for : " . $method_node->name;
+                    foreach ($this->methods_parents[$node->name][$method_node->name] as $global) {
+                        $var = new Expr\Variable($global);
+                        $stmts[] = new Stmt\Global_(array($var));
+                    }
+                    foreach($stmts as $stmt) {
+                      $new_node = $new_node->addStmt($stmt);
+                    }
+                }
+                // Traverse over the statements in the class methods and convert occurrences
+                // of "this" to use objInst
                 $traverser = new PhpParser\NodeTraverser;
                 $traverser->addVisitor(new MethodStmtVisitor);
                 $stmts = $traverser->traverse($method_node->stmts);
@@ -394,9 +400,9 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 foreach($stmts as $stmt) {
                     $new_node = $new_node->addStmt($stmt);
                 }
-
                 $new_node = $new_node->getNode();
                 $new_nodes[] = $new_node;
+                
             } else { 
 
                 $new_node = $factory->function($node->name . "_" . $method_node->name);
