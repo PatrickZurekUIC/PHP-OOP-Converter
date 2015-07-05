@@ -221,7 +221,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         // First, create the global obj_inst variable
         // Then create the constructor call
         $stmts[] = $this->create_obj_inst($node);
-        $stmts[] = $this->create_constructor($node);
+        $stmts[] = $this->create_constructor_call($node);
         return $stmts;
     }
 
@@ -251,13 +251,36 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         $args[] = new Node\Arg($second_arg_val);
         $arr_merge = new Node\Name("array_merge");
         $expr = new Expr\FuncCall($arr_merge, $args);
-        $var = new Expr\Variable($node->var->name);
+        
+        // Check if the lhs is a simple variable or an array
+        if ($node->var instanceof Expr\ArrayDimFetch) {
+            $lhs_var = $node->var;
+            $indexes = array();
+            while($lhs_var instanceof Expr\ArrayDimFetch) {
+                $indexes[] = $lhs_var->dim->value;
+                $lhs_var = $lhs_var->var;
+            }
+            $indexes = array_reverse($indexes);
+            $var = new Expr\Variable($lhs_var->name);
+            $scalar = new Node\Scalar\LNumber($indexes[0]);
+            $adf = new Expr\ArrayDimFetch($var, $scalar);
+            array_shift($indexes);
+            foreach($indexes as $index) {
+                $scalar = new Node\Scalar\LNumber($index);
+                $adf = new Expr\ArrayDimFetch($adf, $scalar);
+            }
+            $var = $adf;
+
+        } else {
+            $var = new Expr\Variable($node->var->name);
+        }
+
         // Finally, create the assignment expression and return it
         $objInst = new Expr\Assign($var, $expr);
         return $objInst;
     }
 
-    private function create_constructor($node) {
+    private function create_constructor_call($node) {
 
         // Find what class this object belongs to
         $class = $node->expr->class->parts[0];
@@ -283,8 +306,31 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         $func_call_name = $class . $method;
         $name = new Node\Name($func_call_name);
         $args = $node->expr->args;
+        
         // Create the objInst variable
-        $obj_inst_var = new Expr\Variable($node->var->name);
+        // We create it differently depending if the original var was
+        // an array or a regular variable
+        if ($node->var instanceof Expr\ArrayDimFetch) {
+            $lhs_var = $node->var;
+            $indexes = array();
+            while($lhs_var instanceof Expr\ArrayDimFetch) {
+                $indexes[] = $lhs_var->dim->value;
+                $lhs_var = $lhs_var->var;
+            }
+            $indexes = array_reverse($indexes);
+            $var = new Expr\Variable($lhs_var->name);
+            $scalar = new Node\Scalar\LNumber($indexes[0]);
+            $adf = new Expr\ArrayDimFetch($var, $scalar);
+            array_shift($indexes);
+            foreach($indexes as $index) {
+                $scalar = new Node\Scalar\LNumber($index);
+                $adf = new Expr\ArrayDimFetch($adf, $scalar);
+            }
+            $obj_inst_var = $adf;
+        } else {
+            $obj_inst_var = new Expr\Variable($node->var->name);
+        }
+        
         $obj_inst_arg = new Node\Arg($obj_inst_var);
         // Add obj_inst to front of arguments array
         array_unshift($args, $obj_inst_arg);
@@ -306,7 +352,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
         // Convert the class' methods to global functions
         $methods = $node->getMethods();
-
         foreach($methods as $method_node) {
 
             // This is used below when constructing the shim functions
@@ -544,9 +589,7 @@ class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
                 $var_name = new Expr\Variable("objInst");
                 return new Expr\ArrayDimFetch($var_name, $key_name);
             }
-        } elseif ($node instanceof Expr\StaticPropertyFetch) {
-
-        }
+        } 
     }
 }
 
