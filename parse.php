@@ -84,8 +84,27 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         if ($objInst == 'this') {
             return null;
         }
+        if ($node->var instanceof Expr\ArrayDimFetch) {
+            $lhs_var = $node->var;
+            $indexes = array();
+            while($lhs_var instanceof Expr\ArrayDimFetch) {
+                $indexes[] = $lhs_var->dim->value;
+                $lhs_var = $lhs_var->var;
+            }
+            $indexes = array_reverse($indexes);
+            $var = new Expr\Variable($lhs_var->name);
+            $scalar = new Node\Scalar\LNumber($indexes[0]);
+            $adf = new Expr\ArrayDimFetch($var, $scalar);
+            array_shift($indexes);
+            foreach($indexes as $index) {
+                $scalar = new Node\Scalar\LNumber($index);
+                $adf = new Expr\ArrayDimFetch($adf, $scalar);
+            }
+            $var_name = $adf;
+        } else {    
+            $var_name = new Expr\Variable($objInst);
+        }
         $key_name = new Node\Scalar\String($node->name);
-        $var_name = new Expr\Variable($objInst);
         return new Expr\ArrayDimFetch($var_name, $key_name); 
     }
 
@@ -370,6 +389,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             $method_names[] = $method_node->name;
 
             // Create the new function and name it
+            // TODO: refactor out the pointless duplication between constructors and non constructors below
             if ($method_node->name == '__construct') {
                 $new_node = $factory->function($node->name . $method_node->name);
                 
