@@ -29,12 +29,17 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 $this->methods_parents[$node->name]['methods'][] = $method_node->name;
             }
 
+            /*  MOVED TO PREPROCESSOR
             $this->methods_parents[$node->name]['statics'] = array();
             foreach($node->stmts as $stmt) {
                 if ($stmt instanceof Stmt\Property && $stmt->isStatic()) {
+                    echo "Adding static: $stmt->props[0]->name\n";
                     $this->methods_parents[$node->name]['statics'][] = $stmt->props[0]->name;
                 }
             }
+            */
+
+
         } elseif ($node instanceof Expr\StaticPropertyFetch) {
             return $this->convert_static_prop_fetch($node);
         } elseif ($node instanceof Stmt\ClassMethod) {
@@ -109,54 +114,64 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
     }
 
     private function convert_static_prop_fetch($node) {
+        global $statics;
         if ($node->class->parts[0] == "self") {
-          $class = $this->current_class;
-          $class_statics = $this->methods_parents[$class]['statics'];
-          $static = $node->name;
-          if (!in_array($static, $class_statics)) {
-              while (true) {
-                  $parent = $this->methods_parents[$class]['parent'];
-                  $class = $parent;
-                  if (in_array($static, $this->methods_parents[$parent]['statics'])){
-                      break;
-                  }
-              }
-          }
-
-          $name = $class . "_" . $static;
-          $variable = new Expr\Variable($name);
-
-          $this->methods_parents[$this->current_class][$this->current_method][] = $name;
-
-          return $variable;
-        } elseif ($node->class->parts[0] == "parent") {
-          $class = $this->current_class;
-          $class_statics = $this->methods_parents[$class]['statics'];
-          $static = $node->name;
-
-          while (true) {
-              $parent = $this->methods_parents[$class]['parent'];
-              $class = $parent;
-              if (in_array($static, $this->methods_parents[$parent]['statics'])){
-                  break;
-              }
-          }
-
-          $name = $class . "_" . $static;
-          $variable = new Expr\Variable($name);
-
-          $this->methods_parents[$this->current_class][$this->current_method][] = $name;
-
-          return $variable;
-        } else {
-            $class = $node->class->parts[0];
-            $class_statics = $this->methods_parents[$class]['statics'];
+            $class = $this->current_class;
+            // TODO Refactored this to use the statics array generated during PP step
+            // make sure this still works
+            //$class_statics = $this->methods_parents[$class]['statics'];
+            $class_statics = $statics[$class];
             $static = $node->name;
             if (!in_array($static, $class_statics)) {
                 while (true) {
                     $parent = $this->methods_parents[$class]['parent'];
                     $class = $parent;
-                    if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                    // TODO: Refactored this to use statics array generated during PP step
+                    //if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                    if (in_array($static, $statics[$parent])){
+                        break;
+                    }
+                }
+            }
+
+            $name = $class . "_" . $static;
+            $variable = new Expr\Variable($name);
+
+            $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+
+            return $variable;
+        } elseif ($node->class->parts[0] == "parent") {
+            $class = $this->current_class;
+            //$class_statics = $this->methods_parents[$class]['statics'];
+            $class_statics = $statics[$class];
+            $static = $node->name;
+
+            while (true) {
+                $parent = $this->methods_parents[$class]['parent'];
+                $class = $parent;
+                //if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                if (in_array($static, $statics[$parent])){
+                    break;
+                }
+            }
+
+            $name = $class . "_" . $static;
+            $variable = new Expr\Variable($name);
+
+            $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+
+            return $variable;
+        } else {
+            $class = $node->class->parts[0];
+            //$class_statics = $this->methods_parents[$class]['statics'];
+            $class_statics = $statics[$class];
+            $static = $node->name;
+            if (!in_array($static, $class_statics)) {
+                while (true) {
+                    $parent = $this->methods_parents[$class]['parent'];
+                    $class = $parent;
+                    //if (in_array($static, $this->methods_parents[$parent]['statics'])){
+                    if (in_array($static, $statics[$parent])){   
                         break;
                     }
                 }
@@ -166,8 +181,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
             $variable = new Expr\Variable($name);
 
             if ($this->current_class != null && $this->current_method != null) {
-              $this->methods_parents[$this->current_class][$this->current_method][] = $name;
-              //echo "Adding " . $name . " to " . $this->current_class . "::" . $this->current_method;
+                $this->methods_parents[$this->current_class][$this->current_method][] = $name;
             }
 
             return $variable;
@@ -301,7 +315,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
                 $adf = new Expr\ArrayDimFetch($adf, $scalar);
             }
             $var = $adf;
-
         } else {
             $var = new Expr\Variable($node->var->name);
         }
@@ -580,25 +593,6 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
         return $new_nodes;
     }
 
-    private function create_shim_function($shim_method, $child, $parent) {
-        $factory = new PhpParser\BuilderFactory;
-        $new_node = $factory->function($child . '_' . $shim_method);
-
-        $name = $parent . "_" . $shim_method;
-        $name = new Node\Name($name);
-
-        $get_args_func = new Node\Name("func_get_args");
-        $args = array();
-        $arg = new Expr\FuncCall($get_args_func, $args);
-        $args[] = new Node\Arg($arg);
-        
-        $func_call_stmt = new Expr\FuncCall($name, $args);
- 
-        $new_node = $new_node->addStmt($func_call_stmt);
-        $new_node = $new_node->getNode();
-        return $new_node;
-    }
-
 }
 
 
@@ -634,6 +628,7 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
             echo "Adding $key to $val\n";
             $obj_class_map[$node->var->name] = $node->expr->class->parts[0];
         } else if ($node instanceof Stmt\Class_) {
+            global $statics;
             global $parent_array;
             if ($node->extends instanceof Node\Name) {
                 $parent = $node->extends->toString();
@@ -650,6 +645,15 @@ class AllNodePreprocessor extends PhpParser\NodeVisitorAbstract
                     $pp_class_methods[$node->name][] = $method_node->name;
                 } 
             }
+
+            // Add static properties of class to global $statics array
+            foreach($node->stmts as $stmt) {
+                if ($stmt instanceof Stmt\Property && $stmt->isStatic()) {
+                    $static = $stmt->props[0]->name;
+                    $statics[$node->name][] = $stmt->props[0]->name;
+                }
+            }
+
         }
     }
 }
@@ -675,7 +679,6 @@ $traverser->addVisitor(new AllNodeVisitor);
 if (sizeof($argv == 2) && $argv[1] == 'nodedump') {
     $nodedump = True;
     $in_dir = $argv[2];
-    echo "here";
 }
 
 // This is the added code to check for user-specified input and output directories
@@ -683,9 +686,9 @@ if (sizeof($argv == 2) && $argv[1] == 'nodedump') {
 else if (sizeof($argv) >= 2) {
 	if (preg_match('(/?[a-zA-Z_0-9]+/$)', $argv[1])) {
 		$in_dir = $argv[1];
-	} else
+	} else {
 		$in_dir = "input/";
-
+    }
 	if (sizeof($argv) == 3) {
 		if (preg_match('(/?[a-zA-Z_0-9]+/$)', $argv[2]))
 			$out_dir = $argv[2];
