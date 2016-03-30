@@ -1,8 +1,15 @@
 <?php
 require 'vendor/autoload.php';
+require 'MyPrettyPrinter.php';
+require 'KeepOriginalValueLexer.php';
+
 use PhpParser\Node;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Expr;
+use PhpParser\ParserFactory;
+use PhpParser\NodeTraverser;
+use PhpParser\PrettyPrinter\MyPrettyPrinter;
+use PhpParser\Lexer\KeepOriginalValueLexer;
 
 // This class is the main workhorse of parse.php, visits all nodes in the program
 class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
@@ -36,7 +43,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 					$this->methods_parents[$node->name]['statics'][] = $stmt->props[0]->name;
 				}
 			}
-		} elseif ($node->expr instanceof Expr\New_) {
+		} elseif (property_exists($node, "expr") and $node->expr instanceof Expr\New_) {
 			$this->obj_class_map[$node->var->name] = $node->expr->class->parts[0];
 		} elseif ($node instanceof Expr\StaticPropertyFetch) {
 			return $this->convert_static_prop_fetch($node);
@@ -54,7 +61,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 			// EXPERIMENTAL:
 			$this->current_class = null;
 			return $this->convert_class_node($node);
-		} elseif ($node->expr instanceof Expr\New_ ) {
+		} elseif (property_exists($node, "expr") && $node->expr instanceof Expr\New_ ) {
 			// If the node is creating a new object with "new"
 			// convert it to create an objInst variable representing the object
 			// and call the correct constructor function
@@ -138,8 +145,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 			$variable = new Expr\Variable($name);
 
 			if ($this->current_class != null && $this->current_method != null) {
-			$this->methods_parents[$this->current_class][$this->current_method][] = $name;
-			//echo "Adding " . $name . " to " . $this->current_class . "::" . $this->current_method;
+			  $this->methods_parents[$this->current_class][$this->current_method][] = $name;
+			  //echo "Adding " . $name . " to " . $this->current_class . "::" . $this->current_method;
 			}
 
 			return $variable;
@@ -244,14 +251,8 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 	private function convert_new_node($node) {
 		// First, create the global obj_inst variable
 		// Then create the constructor call
-		if( property_exists($node, "args") ){
-			$stmts[] = $this->create_obj_inst($node);
-			$stmts[] = $this->create_constructor($node);			
-		}
-		else{
-			$stmts[] = $this->create_obj_inst($node);
-		}
-
+		$stmts[] = $this->create_obj_inst($node);
+		$stmts[] = $this->create_constructor($node);
 		return $stmts;
 	}
 
@@ -263,17 +264,17 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
 		// Replaced the below with an access to the GLOBALS superglobal
 		/*$class_var_name = new Expr\Variable($node->expr->class->parts[0]);
-		$arr_dim = new Node\Scalar\String("__vars");
+		$arr_dim = new Node\Scalar\String_("__vars");
 		$first_arg_val = new Expr\ArrayDimFetch($class_var_name, $arr_dim);*/
 
 		$globals_var = new Expr\Variable("GLOBALS");
-		$first_arr_dim = new Node\Scalar\String($node->expr->class->parts[0]);
-		$second_arr_dim = new Node\Scalar\String("__vars");
+		$first_arr_dim = new Node\Scalar\String_($node->expr->class->parts[0]);
+		$second_arr_dim = new Node\Scalar\String_("__vars");
 		$inner_dim_fetch = new Expr\ArrayDimFetch($globals_var, $first_arr_dim);
 		$first_arg_val = new Expr\ArrayDimFetch($inner_dim_fetch, $second_arr_dim);
 
-		$key = new Node\Scalar\String("__type");
-		$value = new Node\Scalar\String($node->expr->class->parts[0]);
+		$key = new Node\Scalar\String_("__type");
+		$value = new Node\Scalar\String_($node->expr->class->parts[0]);
 		$second_arg_items[] = new Expr\ArrayItem($value, $key);
 		$second_arg_val = new Expr\Array_($second_arg_items);
 
@@ -342,10 +343,32 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 			if ($method_node->name == '__construct') {
 				$explicit_constructor = True;
 				$new_node = $factory->function($node->name . $method_node->name);
-				$firstParam = new PhpParser\Builder\Param("objInst");
-				$firstParam->makeByRef();
-				$new_node->addParams(array_merge(array($firstParam), $method_node->params) );
+				$argsParam = new PhpParser\Builder\Param("args");
+				$new_node = $new_node->addParam($argsParam);
 
+				$name = "objInst";
+				
+				$arr_dim = new Node\Scalar\LNumber(0);
+				$array_name = new Expr\Variable("args");
+				$array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
+
+				$var = new Expr\Variable($name);
+				$objInst = new Expr\Assign($var, $array_fetch);
+
+				$new_node = $new_node->addStmt($objInst);
+
+				$i = 1;
+				foreach($method_node->params as $param) {
+
+					
+					$arr_dim = new Node\Scalar\LNumber($i++);
+					$array_name = new Expr\Variable("args");
+					$array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
+
+					$var = new Expr\Variable($param->name);
+					$new_var_expr = new Expr\Assign($var, $array_fetch);
+					$new_node = $new_node->addStmt($new_var_expr);
+				}
 
 				$traverser = new PhpParser\NodeTraverser;
 				$traverser->addVisitor(new MethodStmtVisitor);
@@ -404,27 +427,23 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
 
 			// If no explicit constructor create one and call parent.  But if not extends, what do we do?
-			if (property_exists($node, "extends") and $node->extends instanceof Node\Name) {
+			if ($node->extends instanceof Node\Name) {
 				$parent = $node->extends->toString();
-				$name = $parent . "__construct";
-				$name = new Node\Name($name);	
-
-				$get_args_func = new Node\Name("func_get_args");
-				$args = array();
-				$arg = new Expr\FuncCall($get_args_func, $args);
-				$args[] = new Node\Arg($arg);
-				
-				$func_call_stmt = new Expr\FuncCall($name, $args);	
-
-				
-				$new_node = $new_node->addStmt($func_call_stmt);
-				$new_node = $new_node->getNode();
-				$new_nodes[] = $new_node;
 			}
-			// elseif () {
+			$name = $parent . "__construct";
+			$name = new Node\Name($name);
 
-			// }
+			$get_args_func = new Node\Name("func_get_args");
+			$args = array();
+			$arg = new Expr\FuncCall($get_args_func, $args);
+			$args[] = new Node\Arg($arg);
+			
+			$func_call_stmt = new Expr\FuncCall($name, $args);
 
+			
+			$new_node = $new_node->addStmt($func_call_stmt);
+			$new_node = $new_node->getNode();
+			$new_nodes[] = $new_node;
 		}
 
 
@@ -437,13 +456,13 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 		$class_consts = array();
 		// Check if the node extends a class before trying to access its parent's name
 		if ($node->extends instanceof Node\Name) {
-			$value = new Node\Scalar\String($node->extends->toString());
-			$key = new Node\Scalar\String("__parent");
+			$value = new Node\Scalar\String_($node->extends->toString());
+			$key = new Node\Scalar\String_("__parent");
 			$array_items[] = new Expr\ArrayItem($value, $key);
 
 			// Set up the first argument to array_merge()
 			$parent_var_name = new Expr\Variable($node->extends->toString());
-			$arr_dim = new Node\Scalar\String("__vars");
+			$arr_dim = new Node\Scalar\String_("__vars");
 			$arg = new Expr\ArrayDimFetch($parent_var_name, $arr_dim);
 			$arr_merge_args[] = new Node\Arg($arg);
 
@@ -469,7 +488,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 					// Don't assume variables of parent that were private
 					if ($stmt->isPublic() || $stmt->isProtected()) {
 						$prop_prop = $stmt->props[0];
-						$vars_key = new Node\Scalar\String($prop_prop->name);
+						$vars_key = new Node\Scalar\String_($prop_prop->name);
 						// If the property value is not null, we can use it directly
 						// else, create a "null" node and use that
 						if ($prop_prop->default != null) {
@@ -489,7 +508,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
 			$func_call_name = new Node\Name("array_merge");
 			$vars_value = new Expr\FuncCall($func_call_name, $arr_merge_args);
-			$vars_key = new Node\Scalar\String("__vars");
+			$vars_key = new Node\Scalar\String_("__vars");
 			$array_items[] = new Expr\ArrayItem($vars_value, $vars_key);
 		} else {
 			// Node doesn't extend a class so just create the global class
@@ -514,9 +533,9 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 						}
 					}
 					// Don't assume variables of parent that were private
-					if ($stmt->isPublic() || $stmt->isProtected() || $stmt->isPrivate()) {
+					if ($stmt->isPublic() || $stmt->isProtected()) {
 						$prop_prop = $stmt->props[0];
-						$vars_key = new Node\Scalar\String($prop_prop->name);
+						$vars_key = new Node\Scalar\String_($prop_prop->name);
 						// If the property value is not null, we can use it directly
 						// else, create a "null" node and use that
 						if ($prop_prop->default != null) {
@@ -531,7 +550,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 			}
 
 			$value = new Expr\Array_($member_vars);
-			$vars_key = new Node\Scalar\String("__vars");
+			$vars_key = new Node\Scalar\String_("__vars");
 			$array_items[] = new Expr\ArrayItem($value, $vars_key);
 		}
 
@@ -554,7 +573,7 @@ class MethodStmtVisitor extends PhpParser\NodeVisitorAbstract
 		if ($node instanceof Expr\PropertyFetch) {
 			$var_node = $node->var;
 			if ($var_node->name == "this") {
-				$key_name = new Node\Scalar\String($node->name);
+				$key_name = new Node\Scalar\String_($node->name);
 				$var_name = new Expr\Variable("objInst");
 				return new Expr\ArrayDimFetch($var_name, $key_name);
 			}
@@ -572,27 +591,37 @@ if (sizeof($argv) != 3) {
 	exit(0);
 }
 
-$parser = new PhpParser\Parser(new PhpParser\Lexer);
-$traverser = new PhpParser\NodeTraverser;
-$prettyPrinter = new PhpParser\PrettyPrinter\Standard;
+$lexer = new KeepOriginalValueLexer;
+$parser = (new ParserFactory)->create(ParserFactory::PREFER_PHP7, $lexer);
+$traverser = new NodeTraverser;
+$prettyPrinter = new MyPrettyPrinter;
 $traverser->addVisitor(new AllNodeVisitor);
-$code = file_get_contents($argv[1]);
+
+$fileName = $argv[1];
+$outDir = $argv[2];
+
+$code = file_get_contents($fileName);
 try {
+	// parse
 	$stmts = $parser->parse($code);
+	
 	if ($argv[2] == "nodedump") {
 		$nodeDumper = new PhpParser\NodeDumper;
-		echo $nodeDumper->dump($stmts), "\n";
+		file_put_contents( $outDir . basename($fileName), $nodeDumper->dump($stmts));
+
+		// echo $nodeDumper->dump($stmts), "\n";
 		exit(0);
 	}
-	$stmts = $traverser->traverse($stmts);
-	$code = $prettyPrinter->prettyPrintFile($stmts);
-	if ($argv[2] == "-") {
-		echo $code . "\n";
-	} else {
-		file_put_contents($argv[2], $code);
-	}
-} catch (PhpParser\Error $e) {
-	echo "Parse Error";
-}
 
-?>
+	// traverse and tranform
+	$stmts = $traverser->traverse($stmts);
+	// replace new code
+	$code = $prettyPrinter->prettyPrintFile($stmts);
+
+	echo "outfile name is : " . $outDir.basename($fileName);
+	// Copy to file
+	file_put_contents( $outDir . basename($fileName), $code);
+
+}catch (PhpParser\Error $e) {
+	echo 'Parse Error: ', $e->getMessage();
+}

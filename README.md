@@ -18,8 +18,8 @@ Then use Composer to install the dependencies:
 #Usage
 To convert a program named Object.php and pipe the output to stdout run:
 
-    php parse.php Object.php -
+    php transform.php Object.php -
 
 To convert a program and write it to a file named output.php, run:
 
-    php parse.php input.php output.php
+    php transform.php input.php output.php
