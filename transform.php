@@ -409,7 +409,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 
 				// Traverse over the statements in the class methods and convert occurrences
 				// of "this" to use objInst
-				$traverser = new PhpParser\NodeTraverser;
+				$traverser = new NodeTraverser;
 				$traverser->addVisitor(new MethodStmtVisitor);
 				$stmts = $traverser->traverse($method_node->stmts);
 
