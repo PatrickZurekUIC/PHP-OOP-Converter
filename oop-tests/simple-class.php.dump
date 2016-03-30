@@ -1,0 +1,430 @@
+Class Stmt Found, not traversing childrenarray(4) {
+	[0]=>
+	object(PhpParser\Node\Stmt\Class_)#28 (6) {
+		["type"]=>
+		int(0)
+		["extends"]=>
+		NULL
+		["implements"]=>
+		array(0) {
+		}
+		["name"]=>
+		string(8) "Greeting"
+		["stmts"]=>
+		array(4) {
+			[0]=>
+			object(PhpParser\Node\Stmt\Property)#10 (3) {
+				["type"]=>
+				int(1)
+				["props"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Stmt\PropertyProperty)#9 (3) {
+						["name"]=>
+						string(5) "hello"
+						["default"]=>
+						object(PhpParser\Node\Scalar\String_)#8 (2) {
+							["value"]=>
+							string(6) "Hello "
+							["attributes":protected]=>
+							array(2) {
+								["startLine"]=>
+								int(3)
+								["endLine"]=>
+								int(3)
+							}
+						}
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(3)
+							["endLine"]=>
+							int(3)
+						}
+					}
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(3)
+					["endLine"]=>
+					int(3)
+				}
+			}
+			[1]=>
+			object(PhpParser\Node\Stmt\Property)#13 (3) {
+				["type"]=>
+				int(1)
+				["props"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Stmt\PropertyProperty)#12 (3) {
+						["name"]=>
+						string(7) "helloFr"
+						["default"]=>
+						object(PhpParser\Node\Scalar\String_)#11 (2) {
+							["value"]=>
+							string(8) "Bonjour "
+							["attributes":protected]=>
+							array(2) {
+								["startLine"]=>
+								int(4)
+								["endLine"]=>
+								int(4)
+							}
+						}
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(4)
+							["endLine"]=>
+							int(4)
+						}
+					}
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(4)
+					["endLine"]=>
+					int(4)
+				}
+			}
+			[2]=>
+			object(PhpParser\Node\Stmt\ClassMethod)#20 (7) {
+				["type"]=>
+				int(0)
+				["byRef"]=>
+				bool(false)
+				["name"]=>
+				string(8) "sayHello"
+				["params"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Param)#14 (6) {
+						["type"]=>
+						NULL
+						["byRef"]=>
+						bool(false)
+						["variadic"]=>
+						bool(false)
+						["name"]=>
+						string(4) "name"
+						["default"]=>
+						NULL
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(6)
+							["endLine"]=>
+							int(6)
+						}
+					}
+				}
+				["returnType"]=>
+				NULL
+				["stmts"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Stmt\Return_)#19 (2) {
+						["expr"]=>
+						object(PhpParser\Node\Expr\BinaryOp\Concat)#18 (3) {
+							["left"]=>
+							object(PhpParser\Node\Expr\PropertyFetch)#16 (3) {
+								["var"]=>
+								object(PhpParser\Node\Expr\Variable)#15 (2) {
+									["name"]=>
+									string(4) "this"
+									["attributes":protected]=>
+									array(2) {
+										["startLine"]=>
+										int(7)
+										["endLine"]=>
+										int(7)
+									}
+								}
+								["name"]=>
+								string(5) "hello"
+								["attributes":protected]=>
+								array(2) {
+									["startLine"]=>
+									int(7)
+									["endLine"]=>
+									int(7)
+								}
+							}
+							["right"]=>
+							object(PhpParser\Node\Expr\Variable)#17 (2) {
+								["name"]=>
+								string(4) "name"
+								["attributes":protected]=>
+								array(2) {
+									["startLine"]=>
+									int(7)
+									["endLine"]=>
+									int(7)
+								}
+							}
+							["attributes":protected]=>
+							array(2) {
+								["startLine"]=>
+								int(7)
+								["endLine"]=>
+								int(7)
+							}
+						}
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(7)
+							["endLine"]=>
+							int(7)
+						}
+					}
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(6)
+					["endLine"]=>
+					int(8)
+				}
+			}
+			[3]=>
+			object(PhpParser\Node\Stmt\ClassMethod)#27 (7) {
+				["type"]=>
+				int(0)
+				["byRef"]=>
+				bool(false)
+				["name"]=>
+				string(10) "sayHelloFr"
+				["params"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Param)#21 (6) {
+						["type"]=>
+						NULL
+						["byRef"]=>
+						bool(false)
+						["variadic"]=>
+						bool(false)
+						["name"]=>
+						string(4) "name"
+						["default"]=>
+						NULL
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(9)
+							["endLine"]=>
+							int(9)
+						}
+					}
+				}
+				["returnType"]=>
+				NULL
+				["stmts"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Stmt\Return_)#26 (2) {
+						["expr"]=>
+						object(PhpParser\Node\Expr\BinaryOp\Concat)#25 (3) {
+							["left"]=>
+							object(PhpParser\Node\Expr\PropertyFetch)#23 (3) {
+								["var"]=>
+								object(PhpParser\Node\Expr\Variable)#22 (2) {
+									["name"]=>
+									string(4) "this"
+									["attributes":protected]=>
+									array(2) {
+										["startLine"]=>
+										int(10)
+										["endLine"]=>
+										int(10)
+									}
+								}
+								["name"]=>
+								string(7) "helloFr"
+								["attributes":protected]=>
+								array(2) {
+									["startLine"]=>
+									int(10)
+									["endLine"]=>
+									int(10)
+								}
+							}
+							["right"]=>
+							object(PhpParser\Node\Expr\Variable)#24 (2) {
+								["name"]=>
+								string(4) "name"
+								["attributes":protected]=>
+								array(2) {
+									["startLine"]=>
+									int(10)
+									["endLine"]=>
+									int(10)
+								}
+							}
+							["attributes":protected]=>
+							array(2) {
+								["startLine"]=>
+								int(10)
+								["endLine"]=>
+								int(10)
+							}
+						}
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(10)
+							["endLine"]=>
+							int(10)
+						}
+					}
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(9)
+					["endLine"]=>
+					int(11)
+				}
+			}
+		}
+		["attributes":protected]=>
+		array(2) {
+			["startLine"]=>
+			int(2)
+			["endLine"]=>
+			int(12)
+		}
+	}
+	[1]=>
+	object(PhpParser\Node\Expr\Assign)#32 (3) {
+		["var"]=>
+		object(PhpParser\Node\Expr\Variable)#29 (2) {
+			["name"]=>
+			string(8) "greeting"
+			["attributes":protected]=>
+			array(2) {
+				["startLine"]=>
+				int(14)
+				["endLine"]=>
+				int(14)
+			}
+		}
+		["expr"]=>
+		object(PhpParser\Node\Expr\New_)#31 (3) {
+			["class"]=>
+			object(PhpParser\Node\Name)#30 (2) {
+				["parts"]=>
+				array(1) {
+					[0]=>
+					string(8) "Greeting"
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(14)
+					["endLine"]=>
+					int(14)
+				}
+			}
+			["args"]=>
+			array(0) {
+			}
+			["attributes":protected]=>
+			array(2) {
+				["startLine"]=>
+				int(14)
+				["endLine"]=>
+				int(14)
+			}
+		}
+		["attributes":protected]=>
+		array(2) {
+			["startLine"]=>
+			int(14)
+			["endLine"]=>
+			int(14)
+		}
+	}
+	[2]=>
+	object(PhpParser\Node\Stmt\Echo_)#37 (2) {
+		["exprs"]=>
+		array(1) {
+			[0]=>
+			object(PhpParser\Node\Expr\MethodCall)#36 (4) {
+				["var"]=>
+				object(PhpParser\Node\Expr\Variable)#33 (2) {
+					["name"]=>
+					string(8) "greeting"
+					["attributes":protected]=>
+					array(2) {
+						["startLine"]=>
+						int(15)
+						["endLine"]=>
+						int(15)
+					}
+				}
+				["name"]=>
+				string(8) "sayHello"
+				["args"]=>
+				array(1) {
+					[0]=>
+					object(PhpParser\Node\Arg)#35 (4) {
+						["value"]=>
+						object(PhpParser\Node\Scalar\String_)#34 (2) {
+							["value"]=>
+							string(3) "Sai"
+							["attributes":protected]=>
+							array(2) {
+								["startLine"]=>
+								int(15)
+								["endLine"]=>
+								int(15)
+							}
+						}
+						["byRef"]=>
+						bool(false)
+						["unpack"]=>
+						bool(false)
+						["attributes":protected]=>
+						array(2) {
+							["startLine"]=>
+							int(15)
+							["endLine"]=>
+							int(15)
+						}
+					}
+				}
+				["attributes":protected]=>
+				array(2) {
+					["startLine"]=>
+					int(15)
+					["endLine"]=>
+					int(15)
+				}
+			}
+		}
+		["attributes":protected]=>
+		array(2) {
+			["startLine"]=>
+			int(15)
+			["endLine"]=>
+			int(15)
+		}
+	}
+	[3]=>
+	object(PhpParser\Node\Stmt\InlineHTML)#38 (2) {
+		["value"]=>
+		string(1) " "
+		["attributes":protected]=>
+		array(2) {
+			["startLine"]=>
+			int(17)
+			["endLine"]=>
+			int(17)
+		}
+	}
+}
