@@ -4,11 +4,8 @@ function sayHi($hi, $name)
 {
     return $hi . " " . $name . "\n";
 }
-function Greeting__construct($args)
+function Greeting__construct(&$objInst, $hello, $helloFr)
 {
-    $objInst = $args[0];
-    $hello = $args[1];
-    $helloFr = $args[2];
     $objInst['hello'] = $hello;
     $objInst['helloFr'] = $helloFr;
 }

@@ -343,31 +343,11 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 			if ($method_node->name == '__construct') {
 				$explicit_constructor = True;
 				$new_node = $factory->function($node->name . $method_node->name);
-				$argsParam = new PhpParser\Builder\Param("args");
-				$new_node = $new_node->addParam($argsParam);
-
-				$name = "objInst";
-				
-				$arr_dim = new Node\Scalar\LNumber(0);
-				$array_name = new Expr\Variable("args");
-				$array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
-
-				$var = new Expr\Variable($name);
-				$objInst = new Expr\Assign($var, $array_fetch);
-
-				$new_node = $new_node->addStmt($objInst);
-
-				$i = 1;
+				$firstParam = new PhpParser\Builder\Param("objInst");
+				$firstParam->makeByRef();
+				$new_node->addParam($firstParam);
 				foreach($method_node->params as $param) {
-
-					
-					$arr_dim = new Node\Scalar\LNumber($i++);
-					$array_name = new Expr\Variable("args");
-					$array_fetch = new Expr\ArrayDimFetch($array_name, $arr_dim);
-
-					$var = new Expr\Variable($param->name);
-					$new_var_expr = new Expr\Assign($var, $array_fetch);
-					$new_node = $new_node->addStmt($new_var_expr);
+					$new_node->addParam($param);
 				}
 
 				$traverser = new PhpParser\NodeTraverser;
@@ -486,7 +466,7 @@ class AllNodeVisitor extends PhpParser\NodeVisitorAbstract
 						}
 					}
 					// Don't assume variables of parent that were private
-					if ($stmt->isPublic() || $stmt->isProtected()) {
+					if ($stmt->isPublic() || $stmt->isProtected() || $stmt->isPrivate()) {
 						$prop_prop = $stmt->props[0];
 						$vars_key = new Node\Scalar\String_($prop_prop->name);
 						// If the property value is not null, we can use it directly
@@ -618,7 +598,7 @@ try {
 	// replace new code
 	$code = $prettyPrinter->prettyPrintFile($stmts);
 
-	echo "outfile name is : " . $outDir.basename($fileName);
+	// echo "outfile name is : " . $outDir.basename($fileName);
 	// Copy to file
 	file_put_contents( $outDir . basename($fileName), $code);
 
